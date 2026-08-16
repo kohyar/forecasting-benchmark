@@ -1,0 +1,14 @@
+# Licensed SPINS data and anything derived from it stays out of the repo
+# (anchored: src/tsbench/data/ is source, not data)
+/data/
+/results/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+.DS_Store

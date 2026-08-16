@@ -1,0 +1,56 @@
+# SPINS weekly retail benchmark - the single source of truth for a run.
+# A run must be reproducible from this file + the seed alone.
+
+run:
+  name: spins-weekly-v1
+  seed: 42
+  n_repeats: 3
+  output_dir: results
+
+data:
+  path: ../dataset/New_Query_2026_06_01_10_17_28.csv
+  target: Dollars
+  # Weekly data: 52 periods per cycle. This drives every seasonal model and
+  # the MASE/RMSSE denominator - do not change it without changing the data.
+  season_length: 52
+  # MARKET x MULO only: census regions aggregate markets and FOOD is a subset
+  # of MULO, so a wider scope would put parents and children in one sample and
+  # correlate series that the statistical tests assume are independent.
+  scope:
+    geography_level: [MARKET]
+    channels: ["CONVENTIONAL|MULTI OUTLET"]
+
+sampling:
+  n_series: 1000
+  volume_deciles: 10
+  zero_share_bins: [0.0, 0.05, 0.2, 1.01]
+  min_observed_weeks: 156
+  sample_path: data/sample_series.csv
+
+protocol:
+  folds: 5
+  # Origins are 4 weeks apart, not 13: spacing them a full horizon apart would
+  # consume 65 weeks and leave the earliest fold under two seasonal cycles.
+  # Test windows therefore overlap - fold errors are correlated, which is why
+  # the DM test uses the Harvey-Leybourne-Newbold correction.
+  step: 4
+  horizons: [4, 13]
+  min_train_weeks: 104
+
+tuning:
+  # Equal budget for every tunable model. Zero-shot foundation models get 0
+  # by definition and report it rather than leaving it blank.
+  budget_trials: 20
+
+metrics:
+  quantile_levels: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+  coverage_levels: [0.8]
+  # Denominator comes from data strictly before the earliest origin, so it is
+  # in-sample for every fold and identical across models and folds.
+  mase_denominator_window: earliest_origin
+
+models:
+  enabled:
+    - naive
+    - seasonal_naive
+  params: {}
