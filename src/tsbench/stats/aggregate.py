@@ -7,6 +7,21 @@ import numpy as np
 import pandas as pd
 
 
+def label_ablation_arms(metrics: pd.DataFrame) -> pd.DataFrame:
+    """Fold the covariate arm into the model label.
+
+    Every downstream table and test keys on `model`, so the with-covariate arm
+    has to become its own model or a groupby averages the ablation away.
+    """
+    if "covariates" not in metrics.columns:
+        return metrics
+
+    out = metrics.copy()
+    out["model"] = np.where(out["covariates"].fillna(False),
+                            out["model"] + "+cov", out["model"])
+    return out
+
+
 def accuracy_table(metrics: pd.DataFrame, metric: str = "MASE") -> pd.DataFrame:
     """model x horizon, with the spread across repeats and folds."""
     sub = metrics[metrics["metric"] == metric]

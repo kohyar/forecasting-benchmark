@@ -18,6 +18,7 @@ from tsbench.stats.aggregate import (
     blocks_for_testing,
     cost_table,
     critical_difference_diagram,
+    label_ablation_arms,
     skill_scores,
 )
 from tsbench.stats.tests import bootstrap_skill_ci, diebold_mariano, posthoc_comparison
@@ -32,8 +33,8 @@ def main() -> None:
     args = ap.parse_args()
 
     run_dir = Path(args.run)
-    metrics = pd.read_parquet(run_dir / "metrics.parquet")
-    timings = pd.read_parquet(run_dir / "timings.parquet")
+    metrics = label_ablation_arms(pd.read_parquet(run_dir / "metrics.parquet"))
+    timings = label_ablation_arms(pd.read_parquet(run_dir / "timings.parquet"))
     meta = json.loads((run_dir / "run_metadata.json").read_text())
     cfg = Config.from_dict(meta["config"])
 

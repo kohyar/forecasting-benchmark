@@ -318,3 +318,26 @@ def test_a_groupby_produces_a_publication_table_without_reshaping(runner, panel)
 
     assert list(table.columns) == [1, 3]
     assert table.index.tolist() == ["constant"]
+
+
+def test_config_model_params_reach_the_adapter(config_dict, panel, reg, tmp_path):
+    """models.params in the config must actually be applied, not decorative."""
+    seen = {}
+
+    class Recording(Constant):
+        name = "recording"
+
+        def fit(self, train_df):
+            seen.update(self.params)
+            super().fit(train_df)
+
+    config_dict["run"]["output_dir"] = str(tmp_path)
+    config_dict["run"]["execution"] = "inprocess"
+    config_dict["run"]["n_repeats"] = 1
+    cfg = Config.from_dict(config_dict)
+    reg.register(Recording)
+
+    BenchmarkRunner(cfg, registry=reg).run(
+        panel, models=["recording"], tuned_params={"recording": {"alpha": 7}})
+
+    assert seen["alpha"] == 7

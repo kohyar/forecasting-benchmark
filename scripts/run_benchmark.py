@@ -26,6 +26,9 @@ def main() -> None:
     ap.add_argument("--run-name", help="override run.name")
     ap.add_argument("--no-mlflow", action="store_true")
     ap.add_argument("--list-models", action="store_true")
+    ap.add_argument("--param", action="append", default=[],
+                    metavar="MODEL:KEY=VALUE",
+                    help="override a model parameter, e.g. nhits:max_steps=20")
     args = ap.parse_args()
 
     with open(args.config) as fh:
@@ -39,6 +42,10 @@ def main() -> None:
         raw["run"]["name"] = args.run_name
     if args.models:
         raw["models"]["enabled"] = [m.strip() for m in args.models.split(",")]
+    for override in args.param:
+        model, _, assignment = override.partition(":")
+        key, _, value = assignment.partition("=")
+        raw["models"].setdefault("params", {}).setdefault(model, {})[key] = yaml.safe_load(value)
 
     cfg = Config.from_dict(raw)
     registry = registry_module.default()
@@ -71,7 +78,7 @@ def main() -> None:
     print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
     print(f"models: {', '.join(cfg.models.enabled)}\n")
 
-    result = runner.run(panel)
+    result = runner.run(panel, tuned_params=cfg.models.params)
     _summarise(result)
 
 

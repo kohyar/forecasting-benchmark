@@ -140,6 +140,34 @@ def test_blocks_average_over_repeats_not_over_series(metrics):
                                    manual.sort_index(), check_names=False)
 
 
+def test_ablation_arms_are_separate_models_not_averaged_together(metrics):
+    """Otherwise a groupby silently merges the with- and without-covariate
+    arms into one number."""
+    from tsbench.stats.aggregate import label_ablation_arms
+
+    metrics = metrics.copy()
+    metrics["covariates"] = False
+    with_cov = metrics[metrics["model"] == "autoets"].copy()
+    with_cov["covariates"] = True
+    with_cov["value"] = with_cov["value"] * 0.5
+    both = pd.concat([metrics, with_cov], ignore_index=True)
+
+    labelled = label_ablation_arms(both)
+    table = accuracy_table(labelled, metric="MASE")
+
+    assert "autoets+cov" in table.index
+    assert "autoets" in table.index
+    assert table.loc["autoets+cov", (4, "median")] < table.loc["autoets", (4, "median")]
+
+
+def test_labelling_leaves_a_single_arm_run_untouched(metrics):
+    from tsbench.stats.aggregate import label_ablation_arms
+
+    metrics = metrics.assign(covariates=False)
+
+    assert set(label_ablation_arms(metrics)["model"]) == set(metrics["model"])
+
+
 def test_critical_difference_diagram_is_written(metrics, tmp_path):
     blocks = blocks_for_testing(metrics, metric="MASE", horizon=4)
     path = tmp_path / "cd.png"
