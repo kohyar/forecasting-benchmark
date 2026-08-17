@@ -3,7 +3,19 @@
 Adding a model is one adapter plus one register() call. The runner resolves
 names through here and never learns any of them.
 """
+import importlib
+
 from tsbench.models.base import FAMILIES, ModelAdapter
+
+#: Every adapter module. torch is imported first: it and lightgbm each bundle
+#: an OpenMP runtime, and loading lightgbm's first breaks torch.
+ADAPTER_MODULES = (
+    "tsbench.models.statsforecast_adapters",
+    "tsbench.models.lightgbm_adapters",
+    "tsbench.models.prophet_adapter",
+    "tsbench.models.neural_adapters",
+    "tsbench.models.gated",
+)
 
 
 class Registry:
@@ -67,11 +79,24 @@ class Registry:
 
 
 _DEFAULT = Registry()
+_POPULATED = False
 
 
 def default() -> Registry:
-    """The populated registry. Importing tsbench.models fills it."""
-    import tsbench.models  # noqa: F401  (registration side effect)
+    """The registry with every adapter loaded.
+
+    Only the parent process should call this; a worker imports the single
+    module it needs so that it does not pull in a conflicting library.
+    """
+    global _POPULATED
+    if not _POPULATED:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            pass
+        for module in ADAPTER_MODULES:
+            importlib.import_module(module)
+        _POPULATED = True
     return _DEFAULT
 
 

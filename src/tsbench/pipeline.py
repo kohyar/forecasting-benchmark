@@ -5,6 +5,7 @@ import pandas as pd
 
 from tsbench.config import Config
 from tsbench.data.sampling import load_sample, save_sample, series_profile, stratified_sample
+from tsbench.eval.metrics import denominators_for_protocol
 from tsbench.eval.splitter import RollingOriginSplitter
 
 
@@ -13,6 +14,14 @@ def eligible_profile(panel: pd.DataFrame, cfg: Config) -> tuple:
     paper's data section reports."""
     splitter = RollingOriginSplitter(cfg)
     verdict = splitter.eligibility(panel)
+
+    # A flat seasonal history gives a zero MASE/RMSSE denominator, so the
+    # series cannot carry a scaled metric at all. Runs of zero-sales weeks
+    # make this reachable, so it is a filter rather than a curiosity.
+    den = denominators_for_protocol(panel, cfg, splitter).set_index("unique_id")
+    scalable = den["mase_denom"].reindex(verdict["unique_id"]).to_numpy()
+    verdict["has_scalable_denominator"] = (scalable > 0) & ~pd.isna(scalable)
+    verdict["eligible"] = verdict["eligible"] & verdict["has_scalable_denominator"]
     eligible = verdict[verdict["eligible"]]
 
     profile = series_profile(panel)
@@ -22,6 +31,7 @@ def eligible_profile(panel: pd.DataFrame, cfg: Config) -> tuple:
         "series_total": len(verdict),
         "dropped_below_min_train": int((~verdict["meets_min_train"]).sum()),
         "dropped_no_evaluation_coverage": int((~verdict["covers_evaluation_span"]).sum()),
+        "dropped_zero_denominator": int((~verdict["has_scalable_denominator"]).sum()),
         "eligible": len(eligible),
         "min_train_weeks_found_all": int(verdict["train_weeks_at_earliest_origin"].min()),
         "min_train_weeks_found_eligible": int(

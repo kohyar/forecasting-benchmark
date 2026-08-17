@@ -16,6 +16,9 @@ from tsbench.runner import BenchmarkRunner
 def cfg(config_dict, tmp_path):
     config_dict["run"]["output_dir"] = str(tmp_path)
     config_dict["run"]["n_repeats"] = 2
+    # These tests use adapters defined inside the test module, which a worker
+    # process cannot import; subprocess execution is covered in test_worker.py.
+    config_dict["run"]["execution"] = "inprocess"
     return Config.from_dict(config_dict)
 
 
@@ -200,6 +203,7 @@ def test_a_changed_config_does_not_reuse_stale_checkpoints(cfg, panel, reg, conf
 
     config_dict["run"]["output_dir"] = str(tmp_path)
     config_dict["run"]["n_repeats"] = 2
+    config_dict["run"]["execution"] = "inprocess"
     config_dict["protocol"]["horizons"] = [1, 2]
     changed = Config.from_dict(config_dict)
     result = BenchmarkRunner(changed, registry=reg).run(panel, models=["constant"])

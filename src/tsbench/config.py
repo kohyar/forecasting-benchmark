@@ -23,6 +23,10 @@ class RunConfig:
     # be identical across models and visible in the results.
     n_jobs: int = 1
     device: str = "auto"
+    # Each (model, fold) in its own process: some adapter libraries cannot
+    # share one (lightgbm and torch both bundle OpenMP), and a segfault or an
+    # OOM kill can only be survived by watching a child exit.
+    execution: str = "subprocess"
 
 
 @dataclass(frozen=True)

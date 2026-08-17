@@ -6,8 +6,10 @@ row carries the config hash, seed and tuning budget so it traces back to a run.
 """
 import json
 import platform
-import random
+import shutil
 import subprocess
+import sys
+import tempfile
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,6 +27,7 @@ from tsbench.eval.splitter import RollingOriginSplitter
 from tsbench.measure import Measurement, device_info, measure, resolve_device
 from tsbench.models import registry as registry_module
 from tsbench.models.base import validate_prediction
+from tsbench.seeding import set_seeds
 
 TRACKED_PACKAGES = [
     "pandas", "numpy", "scipy", "statsforecast", "mlforecast", "neuralforecast",
@@ -50,6 +53,8 @@ class BenchmarkRunner:
         # run's completed work.
         self.checkpoint_dir = self.out_dir / "checkpoints" / cfg.hash
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.work_root = self.out_dir / "work"
+        self.work_root.mkdir(parents=True, exist_ok=True)
         self.mlflow_enabled = mlflow_enabled
 
     # -- orchestration ----------------------------------------------------
@@ -107,7 +112,7 @@ class BenchmarkRunner:
 
     def _fit_and_predict(self, name, adapter_cls, params, train, fold, horizons,
                          repeat, seed, denominators, fit_key):
-        _set_seeds(seed)
+        set_seeds(seed)
         common = {
             "model": name,
             "family": adapter_cls.family,
@@ -126,6 +131,110 @@ class BenchmarkRunner:
 
     def _execute(self, name, adapter_cls, params, train, fold, horizons,
                  denominators, common):
+        if self.cfg.run.execution == "subprocess":
+            return self._execute_subprocess(name, adapter_cls, params, train, fold,
+                                            horizons, denominators, common)
+        return self._execute_inprocess(name, adapter_cls, params, train, fold,
+                                       horizons, denominators, common)
+
+    def _execute_subprocess(self, name, adapter_cls, params, train, fold, horizons,
+                            denominators, common):
+        """Hand the work to a child process so a segfault or an OOM kill is a
+        recorded failure rather than the end of the run."""
+        workdir = Path(tempfile.mkdtemp(prefix=f"tsbench-{name}-", dir=self.work_root))
+        try:
+            train.to_parquet(workdir / "train.parquet", index=False)
+            for h in horizons:
+                fold.future_covariates(h).to_parquet(
+                    workdir / f"future_{h}.parquet", index=False)
+            (workdir / "spec.json").write_text(json.dumps({
+                "config": self.cfg.to_dict(),
+                "module": adapter_cls.__module__,
+                "class": adapter_cls.__name__,
+                "params": params,
+                "horizons": list(horizons),
+                "device": self.device,
+                "seed": common["seed"],
+            }, default=str))
+
+            proc = subprocess.run(
+                [sys.executable, "-m", "tsbench.worker", str(workdir)],
+                capture_output=True, text=True)
+
+            if proc.returncode != 0:
+                return [], self._worker_failure(workdir, proc, horizons, common, train)
+
+            result = json.loads((workdir / "result.json").read_text())
+            return self._collect_worker_output(workdir, result, name, fold, horizons,
+                                               denominators, common, train)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    def _worker_failure(self, workdir, proc, horizons, common, train) -> list:
+        error_path = workdir / "error.json"
+        if error_path.exists():
+            detail = json.loads(error_path.read_text())
+            error, tb = detail["error"], detail["traceback"]
+        else:
+            signal = f"worker exited with code {proc.returncode}"
+            if proc.returncode < 0 or proc.returncode == 139:
+                signal += " (segfault or killed - not catchable in-process)"
+            error, tb = signal, (proc.stderr or "")[-4000:]
+        return [{**common, "horizon": h, "status": "failed", "stage": "worker",
+                 "error": error, "traceback": tb, "worker_modules": None,
+                 **_empty_measurement(self.device, train)} for h in horizons]
+
+    def _collect_worker_output(self, workdir, result, name, fold, horizons,
+                               denominators, common, train):
+        metrics, timings = [], []
+        modules = ",".join(result.get("modules", []))
+        adapter_module = result.get("adapter_module", "")
+        for i, h in enumerate(horizons):
+            try:
+                pred = pd.read_parquet(workdir / f"pred_{h}.parquet")
+                expected_ds = pd.date_range(fold.origin + pd.Timedelta(days=7),
+                                            periods=h, freq="7D")
+                validate_prediction(pred, sorted(train["unique_id"].unique()), expected_ds)
+
+                rows = self._score(pred, fold, h, denominators, name, common)
+                metrics.append(rows)
+
+                per_h = result["horizons"][str(h)]
+                timings.append({
+                    **common, "horizon": h, "status": "ok", "stage": "", "error": "",
+                    "traceback": "", "fit_reused": i > 0,
+                    "fit_seconds": result["fit_seconds"],
+                    "predict_seconds": per_h["predict_seconds"],
+                    "peak_memory_mb": max(result["fit_peak_memory_mb"],
+                                          per_h["predict_peak_memory_mb"]),
+                    "n_series": result["n_series"],
+                    "n_params": result.get("n_params"),
+                    "n_jobs": self.cfg.run.n_jobs,
+                    "worker_modules": modules,
+                    "worker_adapter_module": adapter_module,
+                    **device_info(result.get("device", self.device)),
+                })
+            except Exception as exc:
+                timings.append({**common, "horizon": h, "status": "failed",
+                                "stage": "collect",
+                                "error": f"{type(exc).__name__}: {exc}",
+                                "traceback": traceback.format_exc(),
+                                "worker_modules": modules,
+                                **_empty_measurement(self.device, train)})
+        return metrics, timings
+
+    def _score(self, pred, fold, horizon, denominators, name, common):
+        actual = fold.test(horizon)[["unique_id", "ds", "y"]]
+        rows = evaluate(actual, pred, denominators,
+                        model=name, fold=fold.fold_id, horizon=horizon,
+                        quantile_levels=self.cfg.metrics.quantile_levels,
+                        coverage_levels=self.cfg.metrics.coverage_levels)
+        for col in ("repeat", "seed", "config_hash", "run_name", "tuning_trials", "family"):
+            rows[col] = common[col]
+        return rows
+
+    def _execute_inprocess(self, name, adapter_cls, params, train, fold, horizons,
+                           denominators, common):
         metrics, timings = [], []
         try:
             model = adapter_cls(self.cfg, params=params, device=self.device)
@@ -136,6 +245,7 @@ class BenchmarkRunner:
                 timings.append({**common, "horizon": h, "status": "failed",
                                 "stage": "fit", "error": f"{type(exc).__name__}: {exc}",
                                 "traceback": traceback.format_exc(),
+                                "worker_modules": None,
                                 **_empty_measurement(self.device, train)})
             return metrics, timings
 
@@ -149,15 +259,7 @@ class BenchmarkRunner:
                                             periods=h, freq="7D")
                 validate_prediction(pred, sorted(train["unique_id"].unique()), expected_ds)
 
-                actual = fold.test(h)[["unique_id", "ds", "y"]]
-                rows = evaluate(actual, pred, denominators,
-                                model=name, fold=fold.fold_id, horizon=h,
-                                quantile_levels=self.cfg.metrics.quantile_levels,
-                                coverage_levels=self.cfg.metrics.coverage_levels)
-                for col in ("repeat", "seed", "config_hash", "run_name", "tuning_trials",
-                            "family"):
-                    rows[col] = common[col]
-                metrics.append(rows)
+                metrics.append(self._score(pred, fold, h, denominators, name, common))
 
                 timings.append({
                     **common, "horizon": h, "status": "ok", "stage": "", "error": "",
@@ -167,12 +269,14 @@ class BenchmarkRunner:
                                           n_series=train["unique_id"].nunique(),
                                           n_params=model.n_params),
                     "n_jobs": self.cfg.run.n_jobs,
+                    "worker_modules": None,
                 })
             except Exception as exc:
                 timings.append({**common, "horizon": h, "status": "failed",
                                 "stage": "predict",
                                 "error": f"{type(exc).__name__}: {exc}",
                                 "traceback": traceback.format_exc(),
+                                "worker_modules": None,
                                 **_empty_measurement(self.device, train)})
         return metrics, timings
 
@@ -207,6 +311,7 @@ class BenchmarkRunner:
             "config": self.cfg.to_dict(),
             "seed": self.cfg.run.seed,
             "n_repeats": self.cfg.run.n_repeats,
+            "execution": self.cfg.run.execution,
             "tuning_trials": self.cfg.tuning.budget_trials,
             "tsbench_version": __version__,
             "git_commit": _git_commit(),
@@ -279,18 +384,6 @@ def _empty_measurement(device: str, train: pd.DataFrame) -> dict:
         "n_series": int(train["unique_id"].nunique()), "n_params": None,
         "fit_reused": False, **device_info(device),
     }
-
-
-def _set_seeds(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    try:
-        import torch
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-    except ImportError:
-        pass
 
 
 def _package_versions() -> dict:

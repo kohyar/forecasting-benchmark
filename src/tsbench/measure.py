@@ -6,6 +6,7 @@ not an accounting detail.
 """
 import os
 import platform
+import sys
 import time
 import tracemalloc
 from contextlib import contextmanager
@@ -47,9 +48,9 @@ def synchronize(device: str) -> None:
     rather than async launch."""
     if device == "cpu":
         return
-    try:
-        import torch
-    except ImportError:
+    # Never import torch here: a lightgbm worker must not load it.
+    torch = sys.modules.get("torch")
+    if torch is None:
         return
     if device == "cuda" and torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -65,9 +66,8 @@ def device_info(device: str) -> dict:
         "platform": platform.platform(),
         "processor": platform.processor() or platform.machine(),
     }
-    try:
-        import torch
-    except ImportError:
+    torch = sys.modules.get("torch")
+    if torch is None:
         return info
 
     info["torch_version"] = torch.__version__

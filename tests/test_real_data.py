@@ -52,8 +52,12 @@ def test_protocol_origins_are_weekly_and_correctly_spaced(cfg, panel):
 
 
 def test_eligible_series_clear_two_seasonal_cycles(cfg, panel):
+    from tsbench.pipeline import eligible_profile
+
+    profile, summary = eligible_profile(panel, cfg)
     report = RollingOriginSplitter(cfg).eligibility(panel)
-    eligible = report[report["eligible"]]
+    report = report[report["unique_id"].isin(profile["unique_id"])]
+    eligible = report
 
     assert len(eligible) > 1000, "enough eligible series to draw the sample from"
     assert eligible["train_weeks_at_earliest_origin"].min() >= 104
@@ -104,13 +108,14 @@ def test_no_fold_leaks_on_the_real_panel(cfg, panel):
 
 
 def test_denominators_are_finite_for_the_sampled_series(cfg, panel):
+    from tsbench.pipeline import eligible_profile
+
     splitter = RollingOriginSplitter(cfg)
     den = denominators_for_protocol(panel, cfg, splitter).set_index("unique_id")
-    eligible = splitter.eligibility(panel)
-    eligible = eligible[eligible["eligible"]]["unique_id"]
+    profile, _ = eligible_profile(panel, cfg)
 
-    sub = den.loc[eligible]
+    sub = den.loc[profile["unique_id"]]
 
     assert sub["n_pairs"].min() > 0
-    assert not sub["zero_denominator"].any()
+    assert not sub["zero_denominator"].any(), "flat series are filtered out upstream"
     assert sub["mase_denom"].notna().all()

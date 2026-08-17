@@ -13,9 +13,10 @@ import pandas as pd
 
 from tsbench.config import Config
 from tsbench.data.loader import load_panel
-from tsbench.data.sampling import save_sample, series_profile, stratified_sample
+from tsbench.data.sampling import save_sample, stratified_sample
 from tsbench.eval.metrics import denominators_for_protocol
 from tsbench.eval.splitter import RollingOriginSplitter
+from tsbench.pipeline import eligible_profile
 
 
 def main() -> None:
@@ -35,22 +36,18 @@ def main() -> None:
     print(f"origins ({cfg.protocol.folds} folds, step {cfg.protocol.step}w): "
           + ", ".join(str(o.date()) for o in origins))
 
-    report = splitter.eligibility(panel)
-    n_total = len(report)
-    short = int((~report["meets_min_train"]).sum())
-    uncovered = int((~report["covers_evaluation_span"]).sum())
-    eligible = report[report["eligible"]]
+    profile, elig = eligible_profile(panel, cfg)
+    n_total = elig["series_total"]
+    short = elig["dropped_below_min_train"]
+    uncovered = elig["dropped_no_evaluation_coverage"]
+    flat = elig["dropped_zero_denominator"]
     print(f"\neligibility ({n_total:,} series):")
     print(f"  below min_train_weeks={cfg.protocol.min_train_weeks}: {short:,}")
     print(f"  do not cover the evaluation span:                {uncovered:,}")
-    print(f"  eligible:                                        {len(eligible):,}")
-    print(f"  minimum training weeks found (eligible): "
-          f"{int(eligible['train_weeks_at_earliest_origin'].min())}")
-    print(f"  minimum training weeks found (all):      "
-          f"{int(report['train_weeks_at_earliest_origin'].min())}")
-
-    profile = series_profile(panel)
-    profile = profile[profile["unique_id"].isin(eligible["unique_id"])]
+    print(f"  zero seasonal denominator (unscoreable):         {flat:,}")
+    print(f"  eligible:                                        {elig['eligible']:,}")
+    print(f"  minimum training weeks found (eligible): {elig['min_train_weeks_found_eligible']}")
+    print(f"  minimum training weeks found (all):      {elig['min_train_weeks_found_all']}")
 
     sample = stratified_sample(profile, cfg)
     save_sample(sample, cfg.sampling.sample_path, cfg)
@@ -78,12 +75,7 @@ def main() -> None:
         "panel_start": str(panel["ds"].min().date()),
         "panel_end": str(panel["ds"].max().date()),
         "origins": [str(o.date()) for o in origins],
-        "series_total": n_total,
-        "dropped_below_min_train": short,
-        "dropped_no_evaluation_coverage": uncovered,
-        "eligible": len(eligible),
-        "min_train_weeks_found_eligible": int(eligible["train_weeks_at_earliest_origin"].min()),
-        "min_train_weeks_found_all": int(report["train_weeks_at_earliest_origin"].min()),
+        **elig,
         "sample_size": len(sample),
         "sample_per_decile": {int(k): int(v) for k, v in per_decile.items()},
         "sample_intermittent": int((sample["zero_share"] > 0).sum()),

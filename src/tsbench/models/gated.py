@@ -12,6 +12,7 @@ class TiRexAdapter(ModelAdapter):
 
     name = "tirex"
     family = "foundation"
+    tunable = False
 
     @classmethod
     def is_available(cls):

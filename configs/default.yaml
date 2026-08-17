@@ -10,6 +10,7 @@ run:
   # for every model in a run and recorded on every timing row.
   n_jobs: -1
   device: auto
+  execution: subprocess
 
 data:
   path: ../dataset/New_Query_2026_06_01_10_17_28.csv

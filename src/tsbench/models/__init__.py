@@ -1,3 +1,8 @@
-"""Importing this package registers every adapter."""
-from tsbench.models import statsforecast_adapters  # noqa: F401
-from tsbench.models import gated  # noqa: F401
+"""Model adapters.
+
+Deliberately empty: importing `tsbench.models.<module>` must register that
+adapter and nothing else. Worker processes rely on it - lightgbm and torch
+each bundle an OpenMP runtime and segfault when both are exercised in one
+process, so a lightgbm worker must never load torch. Use
+`registry.default()` when you want them all.
+"""
