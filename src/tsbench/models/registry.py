@@ -14,6 +14,7 @@ ADAPTER_MODULES = (
     "tsbench.models.lightgbm_adapters",
     "tsbench.models.prophet_adapter",
     "tsbench.models.neural_adapters",
+    "tsbench.models.foundation_adapters",
     "tsbench.models.gated",
 )
 

@@ -37,15 +37,39 @@ def test_a_run_of_missing_weeks_is_bridged():
     assert out["y"].tolist() == [10, 20, 30, 40, 50]
 
 
-def test_leading_and_trailing_gaps_are_left_alone():
+def test_leading_gaps_are_left_alone():
     """Nothing to interpolate between - filling them would invent history."""
-    df = frame("A", [np.nan, 2, 3, np.nan])
+    df = frame("A", [np.nan, 2, 3])
 
     out, report = impute_gaps(df)
 
     assert np.isnan(out["y"].iloc[0])
-    assert np.isnan(out["y"].iloc[-1])
     assert report["n_imputed"] == 0
+
+
+def test_a_trailing_gap_is_carried_forward():
+    """The training frame must reach the origin: a model anchored on an
+    earlier week would forecast the wrong weeks entirely."""
+    df = frame("A", [1, 2, 3, np.nan, np.nan])
+
+    out, report = impute_gaps(df)
+
+    assert out["y"].tolist() == [1, 2, 3, 3, 3]
+    assert report["n_carried_forward"] == 2
+    assert report["n_imputed"] == 0, "carrying forward is not interpolation"
+
+
+def test_every_series_ends_on_a_value(raw_frame):
+    """The invariant the runner depends on."""
+    import pandas as pd
+
+    df = pd.concat([frame("A", [1, 2, np.nan]), frame("B", [5, np.nan, np.nan])],
+                   ignore_index=True)
+
+    out, _ = impute_gaps(df)
+    last = out.groupby("unique_id")["y"].last()
+
+    assert last.notna().all()
 
 
 def test_series_are_imputed_independently():

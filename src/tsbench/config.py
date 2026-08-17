@@ -65,6 +65,15 @@ class ProtocolConfig:
 
 
 @dataclass(frozen=True)
+class CostConfig:
+    """Set once the runner hardware is fixed; turns wall clock into the
+    $/1k series figure the paper reports alongside accuracy."""
+    usd_per_hour: float = None
+    instance_type: str = None
+    runtime_version: str = None
+
+
+@dataclass(frozen=True)
 class TuningConfig:
     budget_trials: int
 
@@ -91,6 +100,7 @@ class Config:
     tuning: TuningConfig
     metrics: MetricsConfig
     models: ModelsConfig
+    cost: CostConfig = field(default_factory=CostConfig)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Config":

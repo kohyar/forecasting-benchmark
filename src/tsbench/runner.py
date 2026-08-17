@@ -23,7 +23,7 @@ from tsbench import __version__
 from tsbench.config import Config
 from tsbench.data.prepare import impute_gaps
 from tsbench.eval.metrics import denominators_for_protocol, evaluate
-from tsbench.eval.splitter import RollingOriginSplitter
+from tsbench.eval.splitter import ProtocolError, RollingOriginSplitter
 from tsbench.measure import Measurement, device_info, measure, resolve_device
 from tsbench.models import registry as registry_module
 from tsbench.models.base import validate_prediction
@@ -92,6 +92,7 @@ class BenchmarkRunner:
 
     def _run_model_fold(self, name: str, fold, denominators, params: dict):
         train, self._impute_report = impute_gaps(fold.train)
+        assert_frame_reaches_origin(train, fold.origin)
         adapter_cls = self.registry.get(name)
         horizon_at_fit = getattr(adapter_cls, "horizon_is_fit_time", False)
         horizons = list(self.cfg.protocol.horizons)
@@ -376,6 +377,22 @@ class BenchmarkRunner:
         except Exception:
             # Parquet is the system of record; MLflow is a convenience.
             pass
+
+
+def assert_frame_reaches_origin(train: pd.DataFrame, origin) -> None:
+    """Every series must carry a value at the origin.
+
+    Libraries anchor their forecast on each series' last observation, so a
+    series that stops short silently forecasts the wrong weeks.
+    """
+    observed = train[train["y"].notna()]
+    last = observed.groupby("unique_id")["ds"].max()
+    short = last[last < origin]
+    if len(short):
+        raise ProtocolError(
+            f"{len(short)} series end before the origin {pd.Timestamp(origin).date()} "
+            f"(earliest {short.min().date()}); they would anchor their forecast on the "
+            f"wrong week. Example: {short.index[0]}")
 
 
 def _empty_measurement(device: str, train: pd.DataFrame) -> dict:

@@ -213,6 +213,25 @@ def test_a_changed_config_does_not_reuse_stale_checkpoints(cfg, panel, reg, conf
     assert set(result.timings["horizon"]) == {1, 2}
 
 
+def test_a_training_frame_that_stops_short_of_the_origin_is_refused(cfg, reg):
+    """A model anchored before the origin forecasts the wrong weeks. That was
+    a real failure mode; it must be loud, not silent."""
+    import numpy as np
+    from tsbench.data.prepare import impute_gaps
+    from tsbench.eval.splitter import ProtocolError, RollingOriginSplitter
+    from tsbench.runner import assert_frame_reaches_origin
+
+    ds = pd.date_range("2022-01-09", periods=30, freq="7D")
+    frame = pd.DataFrame({"unique_id": "A", "ds": ds, "y": np.arange(30.0)})
+    frame.loc[frame.index[-3:], "y"] = np.nan
+    truncated = frame.iloc[:-3]
+
+    assert_frame_reaches_origin(impute_gaps(frame)[0], ds[-1])
+
+    with pytest.raises(ProtocolError, match="origin"):
+        assert_frame_reaches_origin(truncated, ds[-1])
+
+
 def test_results_are_written_as_long_parquet(runner, panel, cfg):
     result = runner.run(panel, models=["constant"])
 
