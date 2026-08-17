@@ -72,14 +72,17 @@ def cost_table(metrics_or_timings: pd.DataFrame, cfg=None) -> pd.DataFrame:
     preds = t.groupby("model")["predict_seconds"].agg(["sum", "median"])
     preds.columns = ["predict_seconds_total", "predict_seconds_median"]
 
-    extras = t.groupby("model").agg(
-        family=("family", "first"),
-        peak_memory_mb=("peak_memory_mb", "max"),
-        n_series=("n_series", "max"),
-        n_params=("n_params", "max"),
-        device=("device", "first"),
-        tuning_trials=("tuning_trials", "first"),
-    )
+    aggregations = {
+        "family": ("family", "first"),
+        "peak_memory_mb": ("peak_memory_mb", "max"),
+        "peak_rss_mb": ("peak_rss_mb", "max"),
+        "n_series": ("n_series", "max"),
+        "n_params": ("n_params", "max"),
+        "device": ("device", "first"),
+        "tuning_trials": ("tuning_trials", "first"),
+    }
+    aggregations = {k: v for k, v in aggregations.items() if v[0] in t.columns}
+    extras = t.groupby("model").agg(**aggregations)
 
     table = extras.join(fits).join(preds)
     table["total_seconds"] = table["fit_seconds_total"] + table["predict_seconds_total"]

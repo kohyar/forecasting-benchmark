@@ -24,7 +24,13 @@ from tsbench.config import Config
 from tsbench.data.prepare import impute_gaps
 from tsbench.eval.metrics import denominators_for_protocol, evaluate
 from tsbench.eval.splitter import ProtocolError, RollingOriginSplitter
-from tsbench.measure import Measurement, device_info, measure, resolve_device
+from tsbench.measure import (
+    Measurement,
+    device_info,
+    measure,
+    peak_rss_mb,
+    resolve_device,
+)
 from tsbench.models import registry as registry_module
 from tsbench.models.base import validate_prediction
 from tsbench.seeding import set_seeds
@@ -221,6 +227,7 @@ class BenchmarkRunner:
                     "predict_seconds": per_h["predict_seconds"],
                     "peak_memory_mb": max(result["fit_peak_memory_mb"],
                                           per_h["predict_peak_memory_mb"]),
+                    "peak_rss_mb": result.get("peak_rss_mb"),
                     "n_series": result["n_series"],
                     "n_params": result.get("n_params"),
                     "n_jobs": self.cfg.run.n_jobs,
@@ -285,6 +292,7 @@ class BenchmarkRunner:
                                           n_params=model.n_params),
                     "n_jobs": self.cfg.run.n_jobs,
                     "worker_modules": None,
+                    "peak_rss_mb": peak_rss_mb(),
                 })
             except Exception as exc:
                 timings.append({**common, "horizon": h, "status": "failed",
@@ -414,7 +422,7 @@ def _empty_measurement(device: str, train: pd.DataFrame) -> dict:
     return {
         "fit_seconds": np.nan, "predict_seconds": np.nan, "peak_memory_mb": np.nan,
         "n_series": int(train["unique_id"].nunique()), "n_params": None,
-        "fit_reused": False, **device_info(device),
+        "peak_rss_mb": np.nan, "fit_reused": False, **device_info(device),
     }
 
 

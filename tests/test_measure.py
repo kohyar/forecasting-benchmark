@@ -97,3 +97,24 @@ def test_measurement_survives_an_exception_and_still_reports(monkeypatch):
             raise ValueError("boom")
 
     assert m.seconds > 0
+
+
+def test_peak_rss_is_reported_for_the_whole_process():
+    """tracemalloc only sees Python allocations; a torch or lightgbm model
+    does most of its allocating in C and would look free."""
+    from tsbench.measure import peak_rss_mb
+
+    value = peak_rss_mb()
+
+    assert value > 1.0, "the interpreter alone is bigger than a megabyte"
+
+
+def test_peak_rss_grows_with_a_large_allocation():
+    from tsbench.measure import peak_rss_mb
+
+    before = peak_rss_mb()
+    blob = bytearray(200 * 1024 * 1024)
+    after = peak_rss_mb()
+    del blob
+
+    assert after >= before

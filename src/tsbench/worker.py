@@ -17,7 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from tsbench.config import Config
-from tsbench.measure import measure
+from tsbench.measure import measure, peak_rss_mb
 from tsbench.seeding import set_seeds
 
 
@@ -55,6 +55,7 @@ def run(workdir: Path) -> int:
             "predict_peak_memory_mb": pred_m.peak_memory_mb,
         }
 
+    result["peak_rss_mb"] = peak_rss_mb()
     result["n_params"] = model.n_params
     result["n_series"] = int(train["unique_id"].nunique())
     result["device"] = device

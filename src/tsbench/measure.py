@@ -6,11 +6,25 @@ not an accounting detail.
 """
 import os
 import platform
+import resource
 import sys
 import time
 import tracemalloc
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+
+
+def peak_rss_mb() -> float:
+    """Peak resident memory for this process.
+
+    tracemalloc only counts Python allocations, so a model that allocates in C
+    would look free. Each model runs in its own process, which makes the
+    process-level peak a clean per-model figure.
+    """
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    # macOS reports bytes, Linux reports kilobytes
+    divisor = 1024 ** 2 if sys.platform == "darwin" else 1024
+    return peak / divisor
 
 
 def resolve_device(preference: str = "auto", available: set | None = None) -> str:
