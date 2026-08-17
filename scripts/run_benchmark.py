@@ -8,7 +8,6 @@ reproducible from config + seed alone.
 import argparse
 import sys
 
-import pandas as pd
 import yaml
 
 from tsbench.config import Config

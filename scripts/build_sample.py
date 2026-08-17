@@ -9,7 +9,6 @@ import argparse
 import json
 from pathlib import Path
 
-import pandas as pd
 
 from tsbench.config import Config
 from tsbench.data.loader import load_panel
