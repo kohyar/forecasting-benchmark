@@ -78,13 +78,13 @@ the panel, is never scored, and is filled only in the training frame.
 `row_present` keeps the two distinguishable. Setting `absent_rows: missing`
 restores the naive reading for a sensitivity check.
 
-**Consequence:** the panel *is* intermittent. 700 of the eligible series (9.8%)
-have zero weeks; under the naive reading only 5 did. On the frozen sample the
-Syntetos-Boylan classification is 83.4% smooth, 14.1% erratic, 2.4% lumpy,
-0.1% intermittent, with 25 series above the Croston-relevant ADI ≥ 1.32 and 14
-above 50% zero weeks. That answers the roster's open question with evidence:
-Croston/SBA/TSB stay excluded, but say so on these numbers rather than by
-assumption.
+**Consequence:** the panel *is* intermittent. 700 of the eligible series have
+zero weeks; under the naive reading only 5 did. On the frozen sample the
+Syntetos-Boylan classification is 83.0% smooth, 14.7% erratic, 2.2% lumpy and
+0.1% intermittent, with 100 series holding at least one zero week, 23 above the
+Croston-relevant ADI ≥ 1.32, 30 above 20% zero weeks and 13 above 50%. That
+answers the roster's open question with evidence: Croston/SBA/TSB stay
+excluded, but say so on these numbers rather than by assumption.
 
 ### Training-frame preparation
 
@@ -269,6 +269,37 @@ system of record.
 - This machine has no CUDA. Accuracy is device-independent, but the cost and
   scaling numbers in §5–6 must come from one pinned GPU instance, recorded in
   `cost.usd_per_hour` / `cost.instance_type` / `cost.runtime_version`.
+
+## Validation run
+
+A 50-series smoke run over ten models (`results/roster-smoke`), neural models
+capped at 40 steps so it finishes on a laptop — accuracy here is not a result,
+the point is that the pipeline is sound end to end.
+
+| model | MASE h=4 | MASE h=13 | fit s | predict s |
+|---|---:|---:|---:|---:|
+| autotheta | 0.632 | 0.762 | 64.4 | 61.1 |
+| autoets | 0.653 | 0.906 | 72.6 | 59.0 |
+| nhits | 0.666 | 0.766 | 343.0 | 36.4 |
+| naive | 0.689 | 0.885 | 63.8 | 56.4 |
+| lightgbm_local | 0.717 | 0.837 | 209.8 | 39.7 |
+| lightgbm_global | 0.801 | 1.009 | 51.5 | 0.8 |
+| prophet | 0.864 | 0.878 | 54.9 | 22.7 |
+| seasonal_naive | 0.920 | 0.953 | 61.3 | 62.6 |
+| dlinear | 1.001 | 0.983 | 390.7 | 25.7 |
+| patchtst | 1.262 | 1.425 | 352.1 | 118.1 |
+
+Three things worth noting, all of which the harness is built to surface:
+
+- **SeasonalNaive lands at MASE ≈ 0.92–0.95.** It should sit near 1 by
+  construction, since the denominator is its own in-sample error. That it does
+  is the strongest single check that splitter, denominator and metrics agree.
+- **LightGBM-local (0.72) beats LightGBM-global (0.80)** at 50 series, while
+  global is 4× cheaper to fit and 50× cheaper to predict. Same algorithm, same
+  features, same budget — scope is the only variable. Finding where that
+  crossover flips as cardinality grows is the paper's first claim.
+- **The two post-hocs disagree** on 5 pairs at h=4 and 2 at h=13. Exactly the
+  Nemenyi instability Benavoli et al. describe, and the reason both are run.
 
 ## Adding a model
 
