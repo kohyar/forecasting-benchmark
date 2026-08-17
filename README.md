@@ -123,6 +123,19 @@ with/without-covariates ablation.
 There is no promotion field and no posted price plan. A holiday calendar is the
 obvious addition and has a hook in `Fold.future_covariates`.
 
+### The ablation
+
+`models.covariate_ablation: true` runs every covariate-capable model twice —
+once with, once without — and stamps a `covariates` column on every metric and
+timing row. Models that cannot use covariates run once. The two arms are
+checkpointed apart, so a resumed run does not merge them.
+
+`test_covariates.py` asserts the arms actually diverge: a model that declared
+support but ignored its inputs would produce two identical arms and an ablation
+that proves nothing. That test caught exactly that bug in the LightGBM adapters.
+It needs more than a year of fixture history, because the `_Yago` covariates are
+52-week lags and a shorter panel hands the model a column of zeros.
+
 ## Protocol
 
 Rolling origin, expanding window, 5 folds, step 4 weeks, horizons 4 and 13.

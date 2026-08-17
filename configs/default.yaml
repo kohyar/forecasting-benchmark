@@ -66,6 +66,7 @@ cost:
   runtime_version: null
 
 models:
+  covariate_ablation: false
   enabled:
     - naive
     - seasonal_naive

@@ -89,6 +89,9 @@ class MetricsConfig:
 class ModelsConfig:
     enabled: list
     params: dict = field(default_factory=dict)
+    # Run covariate-capable models twice, with and without. Doubles their cost
+    # and is a core result: the model is fixed, covariates are the only change.
+    covariate_ablation: bool = False
 
 
 @dataclass(frozen=True)

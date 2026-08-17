@@ -232,6 +232,62 @@ def test_a_training_frame_that_stops_short_of_the_origin_is_refused(cfg, reg):
         assert_frame_reaches_origin(truncated, ds[-1])
 
 
+class WithCovariates(Constant):
+    name = "with_covariates"
+    family = "global"
+
+    def supports_covariates(self):
+        return True
+
+
+def test_capable_models_run_with_and_without_covariates(config_dict, panel, reg, tmp_path):
+    """The ablation is a core result: same model, covariates the only change."""
+    config_dict["run"]["output_dir"] = str(tmp_path)
+    config_dict["run"]["execution"] = "inprocess"
+    config_dict["run"]["n_repeats"] = 1
+    config_dict["models"]["covariate_ablation"] = True
+    cfg = Config.from_dict(config_dict)
+    reg.register(WithCovariates)
+
+    result = BenchmarkRunner(cfg, registry=reg).run(panel, models=["with_covariates"])
+
+    assert set(result.timings["covariates"]) == {False, True}
+    assert set(result.metrics["covariates"]) == {False, True}
+
+
+def test_models_without_covariate_support_run_once(config_dict, panel, reg, tmp_path):
+    config_dict["run"]["output_dir"] = str(tmp_path)
+    config_dict["run"]["execution"] = "inprocess"
+    config_dict["run"]["n_repeats"] = 1
+    config_dict["models"]["covariate_ablation"] = True
+    cfg = Config.from_dict(config_dict)
+
+    result = BenchmarkRunner(cfg, registry=reg).run(panel, models=["constant"])
+
+    assert set(result.timings["covariates"]) == {False}
+
+
+def test_the_ablation_is_off_by_default(runner, panel):
+    result = runner.run(panel, models=["constant"])
+
+    assert set(result.timings["covariates"]) == {False}
+
+
+def test_the_two_ablation_arms_are_checkpointed_apart(config_dict, panel, reg, tmp_path):
+    config_dict["run"]["output_dir"] = str(tmp_path)
+    config_dict["run"]["execution"] = "inprocess"
+    config_dict["run"]["n_repeats"] = 1
+    config_dict["models"]["covariate_ablation"] = True
+    cfg = Config.from_dict(config_dict)
+    reg.register(WithCovariates)
+
+    BenchmarkRunner(cfg, registry=reg).run(panel, models=["with_covariates"])
+    resumed = BenchmarkRunner(cfg, registry=reg).run(panel, models=["with_covariates"])
+
+    assert set(resumed.timings["covariates"]) == {False, True}
+    assert resumed.timings["resumed"].all()
+
+
 def test_results_are_written_as_long_parquet(runner, panel, cfg):
     result = runner.run(panel, models=["constant"])
 

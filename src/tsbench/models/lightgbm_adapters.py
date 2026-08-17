@@ -8,7 +8,7 @@ below, so the configurations cannot drift apart.
 import numpy as np
 import pandas as pd
 
-from tsbench.data.schema import assert_weekly
+from tsbench.data.schema import PLANNED_PRICE, YAGO, assert_weekly
 from tsbench.models.base import AdapterError, ModelAdapter
 from tsbench.models.registry import register
 
@@ -67,12 +67,40 @@ class LightGBMBase(ModelAdapter):
     def supports_covariates(self) -> bool:
         return True
 
+    def _use_covariates(self) -> bool:
+        return bool(self.params.get("use_covariates", False))
+
     def _prepare(self, train_df: pd.DataFrame) -> pd.DataFrame:
-        df = train_df[["unique_id", "ds", "y"]].dropna(subset=["y"])
+        self._exog = []
+        if self._use_covariates():
+            self._exog = [c for c in YAGO + [PLANNED_PRICE, "week_of_year"]
+                          if c in train_df.columns]
+
+        train_df = train_df.copy()
+        if self._use_covariates() and "week_of_year" not in train_df.columns:
+            train_df["week_of_year"] = train_df["ds"].dt.isocalendar().week.astype(int)
+            if "week_of_year" not in self._exog:
+                self._exog.append("week_of_year")
+
+        df = train_df[["unique_id", "ds", "y"] + self._exog].dropna(subset=["y"])
         if df.empty:
             raise AdapterError(f"{self.name}: no observations to fit")
+        if self._exog:
+            df[self._exog] = df[self._exog].fillna(0.0)
         self._freq = assert_weekly(df["ds"])
         return df
+
+    def _future_frame(self, ids=None) -> pd.DataFrame:
+        if not self._exog:
+            return None
+        future = getattr(self, "_future", None)
+        if future is None:
+            raise AdapterError(f"{self.name}: future covariates were not supplied")
+        if ids is not None:
+            future = future[future["unique_id"].isin(ids)]
+        out = future[["unique_id", "ds"] + self._exog].copy()
+        out[self._exog] = out[self._exog].fillna(0.0)
+        return out
 
     @staticmethod
     def _rename(pred: pd.DataFrame, alias: str) -> pd.DataFrame:
@@ -96,7 +124,8 @@ class LightGBMGlobalAdapter(LightGBMBase):
         self._alias = next(iter(self._model.models))
 
     def predict(self, horizon: int) -> pd.DataFrame:
-        return self._rename(self._model.predict(h=horizon), self._alias)
+        pred = self._model.predict(h=horizon, X_df=self._future_frame())
+        return self._rename(pred, self._alias)
 
     @property
     def n_params(self):
@@ -134,7 +163,8 @@ class LightGBMLocalAdapter(LightGBMBase):
             model = self._models.get(uid)
             if model is None:
                 continue
-            out.append(self._rename(model.predict(h=horizon), self._alias))
+            pred = model.predict(h=horizon, X_df=self._future_frame(ids=[uid]))
+            out.append(self._rename(pred, self._alias))
         return pd.concat(out, ignore_index=True)
 
     @property

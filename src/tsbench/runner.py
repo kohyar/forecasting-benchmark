@@ -69,19 +69,21 @@ class BenchmarkRunner:
 
         metrics, timings = [], []
         for name in models:
-            for fold in folds:
-                done = self._load_checkpoint(name, fold.fold_id)
-                if done is not None:
-                    metrics.append(done["metrics"])
-                    timings.append(done["timings"])
-                    continue
+            for use_covariates in self._covariate_arms(name):
+                for fold in folds:
+                    done = self._load_checkpoint(name, fold.fold_id, use_covariates)
+                    if done is not None:
+                        metrics.append(done["metrics"])
+                        timings.append(done["timings"])
+                        continue
 
-                m, t = self._run_model_fold(name, fold, denominators,
-                                            tuned_params.get(name, {}))
-                t = t.assign(resumed=False)
-                self._save_checkpoint(name, fold.fold_id, m, t)
-                metrics.append(m)
-                timings.append(t)
+                    m, t = self._run_model_fold(name, fold, denominators,
+                                                tuned_params.get(name, {}),
+                                                use_covariates)
+                    t = t.assign(resumed=False)
+                    self._save_checkpoint(name, fold.fold_id, use_covariates, m, t)
+                    metrics.append(m)
+                    timings.append(t)
 
         metrics = _concat(metrics)
         timings = _concat(timings)
@@ -90,12 +92,22 @@ class BenchmarkRunner:
         self._log_mlflow(metrics, timings, metadata)
         return RunResult(metrics=metrics, timings=timings, metadata=metadata, paths=paths)
 
-    def _run_model_fold(self, name: str, fold, denominators, params: dict):
+    def _covariate_arms(self, name: str) -> list:
+        """Capable models run twice when the ablation is on; everything else
+        runs once, without."""
+        if not self.cfg.models.covariate_ablation:
+            return [False]
+        adapter = self.registry.get(name)(self.cfg)
+        return [False, True] if adapter.supports_covariates() else [False]
+
+    def _run_model_fold(self, name: str, fold, denominators, params: dict,
+                        use_covariates: bool = False):
         train, self._impute_report = impute_gaps(fold.train)
         assert_frame_reaches_origin(train, fold.origin)
         adapter_cls = self.registry.get(name)
         horizon_at_fit = getattr(adapter_cls, "horizon_is_fit_time", False)
         horizons = list(self.cfg.protocol.horizons)
+        params = {**params, "use_covariates": use_covariates} if use_covariates else params
 
         metrics, timings = [], []
         for repeat in range(self.cfg.run.n_repeats):
@@ -106,16 +118,17 @@ class BenchmarkRunner:
                 fit_key = f"{name}|f{fold.fold_id}|r{repeat}|h{group[0] if horizon_at_fit else 'all'}"
                 m, t = self._fit_and_predict(
                     name, adapter_cls, params, train, fold, group, repeat, seed,
-                    denominators, fit_key)
+                    denominators, fit_key, use_covariates)
                 metrics.extend(m)
                 timings.extend(t)
         return _concat(metrics), pd.DataFrame(timings)
 
     def _fit_and_predict(self, name, adapter_cls, params, train, fold, horizons,
-                         repeat, seed, denominators, fit_key):
+                         repeat, seed, denominators, fit_key, use_covariates=False):
         set_seeds(seed)
         common = {
             "model": name,
+            "covariates": use_covariates,
             "family": adapter_cls.family,
             "fold": fold.fold_id,
             "origin": fold.origin,
@@ -230,7 +243,8 @@ class BenchmarkRunner:
                         model=name, fold=fold.fold_id, horizon=horizon,
                         quantile_levels=self.cfg.metrics.quantile_levels,
                         coverage_levels=self.cfg.metrics.coverage_levels)
-        for col in ("repeat", "seed", "config_hash", "run_name", "tuning_trials", "family"):
+        for col in ("repeat", "seed", "config_hash", "run_name", "tuning_trials",
+                    "family", "covariates"):
             rows[col] = common[col]
         return rows
 
@@ -283,19 +297,19 @@ class BenchmarkRunner:
 
     # -- checkpointing ----------------------------------------------------
 
-    def _checkpoint_paths(self, model: str, fold: int) -> tuple:
-        stem = f"{model}__fold{fold}"
+    def _checkpoint_paths(self, model: str, fold: int, use_covariates: bool) -> tuple:
+        stem = f"{model}__fold{fold}" + ("__cov" if use_covariates else "")
         return (self.checkpoint_dir / f"{stem}__metrics.parquet",
                 self.checkpoint_dir / f"{stem}__timings.parquet")
 
-    def _save_checkpoint(self, model, fold, metrics, timings) -> None:
-        m_path, t_path = self._checkpoint_paths(model, fold)
+    def _save_checkpoint(self, model, fold, use_covariates, metrics, timings) -> None:
+        m_path, t_path = self._checkpoint_paths(model, fold, use_covariates)
         if len(metrics):
             metrics.to_parquet(m_path, index=False)
         timings.to_parquet(t_path, index=False)
 
-    def _load_checkpoint(self, model, fold):
-        m_path, t_path = self._checkpoint_paths(model, fold)
+    def _load_checkpoint(self, model, fold, use_covariates=False):
+        m_path, t_path = self._checkpoint_paths(model, fold, use_covariates)
         if not t_path.exists():
             return None
         metrics = pd.read_parquet(m_path) if m_path.exists() else pd.DataFrame()
@@ -320,6 +334,7 @@ class BenchmarkRunner:
             "hardware": device_info(self.device),
             "python": platform.python_version(),
             "models": models,
+            "covariate_ablation": self.cfg.models.covariate_ablation,
             "model_status": [self.registry.status(m) for m in models
                              if m in self.registry.names()],
             "panel": {
