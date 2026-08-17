@@ -12,6 +12,15 @@ _META_PREFIX = "#tsbench "
 _DATE_COLS = ["first_ds", "last_ds"]
 
 
+def _canonical_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Pin datetime resolution so the frozen sample round-trips exactly;
+    pandas infers seconds or nanoseconds depending on how a frame was built."""
+    for col in _DATE_COLS:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col]).astype("datetime64[ns]")
+    return df
+
+
 def series_profile(panel: pd.DataFrame) -> pd.DataFrame:
     """Per-series characteristics used for stratification and eligibility."""
     g = panel.groupby("unique_id", sort=True)
@@ -40,7 +49,7 @@ def label_strata(profile: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     elig["zero_bin"] = pd.cut(elig["zero_share"], bins=s.zero_share_bins, labels=False,
                               include_lowest=True, right=False).astype(int)
     elig["stratum"] = (elig["volume_decile"].astype(str) + "|" + elig["zero_bin"].astype(str))
-    return elig.sort_values("unique_id").reset_index(drop=True)
+    return _canonical_dates(elig.sort_values("unique_id").reset_index(drop=True))
 
 
 def stratified_sample(profile: pd.DataFrame, cfg: Config) -> pd.DataFrame:
@@ -112,7 +121,7 @@ def load_sample(path, expect: Config | None = None):
         if not first.startswith(_META_PREFIX):
             raise ValueError(f"{path} has no tsbench provenance header")
         meta = json.loads(first[len(_META_PREFIX):])
-        sample = pd.read_csv(fh, parse_dates=_DATE_COLS)
+        sample = _canonical_dates(pd.read_csv(fh, parse_dates=_DATE_COLS))
 
     if expect is not None and meta["config_hash"] != expect.hash:
         raise ValueError(

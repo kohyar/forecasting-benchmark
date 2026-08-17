@@ -1,0 +1,114 @@
+"""Run the benchmark.
+
+    python scripts/run_benchmark.py --models naive,seasonal_naive --n-series 50
+
+Every override lands in the config before the hash is taken, so results stay
+reproducible from config + seed alone.
+"""
+import argparse
+import sys
+
+import pandas as pd
+import yaml
+
+from tsbench.config import Config
+from tsbench.data.loader import load_panel
+from tsbench.models import registry as registry_module
+from tsbench.pipeline import ensure_sample
+from tsbench.runner import BenchmarkRunner
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="configs/default.yaml")
+    ap.add_argument("--models", help="comma-separated; defaults to models.enabled")
+    ap.add_argument("--n-series", type=int, help="override sampling.n_series")
+    ap.add_argument("--run-name", help="override run.name")
+    ap.add_argument("--no-mlflow", action="store_true")
+    ap.add_argument("--list-models", action="store_true")
+    args = ap.parse_args()
+
+    with open(args.config) as fh:
+        raw = yaml.safe_load(fh)
+
+    if args.n_series:
+        raw["sampling"]["n_series"] = args.n_series
+        raw["sampling"]["sample_path"] = f"data/sample_series_{args.n_series}.csv"
+        raw["run"]["name"] = args.run_name or f"{raw['run']['name']}-n{args.n_series}"
+    elif args.run_name:
+        raw["run"]["name"] = args.run_name
+    if args.models:
+        raw["models"]["enabled"] = [m.strip() for m in args.models.split(",")]
+
+    cfg = Config.from_dict(raw)
+    registry = registry_module.default()
+
+    if args.list_models:
+        for status in registry.report():
+            mark = "ok " if status["available"] else "-- "
+            print(f"{mark}{status['name']:20s} {status['family']:11s} "
+                  f"{status['disabled_reason']}")
+        return
+
+    unknown = [m for m in cfg.models.enabled if m not in registry.names()]
+    if unknown:
+        sys.exit(f"unknown model(s): {unknown}\nregistered: {registry.names()}")
+    blocked = [m for m in cfg.models.enabled if not registry.status(m)["available"]]
+    if blocked:
+        sys.exit("\n".join(f"{m} is unavailable: {registry.status(m)['disabled_reason']}"
+                           for m in blocked))
+
+    print(f"config {args.config}  hash={cfg.hash}  seed={cfg.run.seed}  "
+          f"repeats={cfg.run.n_repeats}")
+    panel = load_panel(cfg)
+    sample, meta = ensure_sample(panel, cfg)
+    panel = panel[panel["unique_id"].isin(sample["unique_id"])].reset_index(drop=True)
+    print(f"sample: {len(sample):,} series ({'built' if meta['built'] else 'frozen'}) "
+          f"-> {cfg.sampling.sample_path}")
+    print(f"panel:  {len(panel):,} rows  {panel['ds'].min().date()} .. {panel['ds'].max().date()}")
+
+    runner = BenchmarkRunner(cfg, registry=registry, mlflow_enabled=not args.no_mlflow)
+    print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
+    print(f"models: {', '.join(cfg.models.enabled)}\n")
+
+    result = runner.run(panel)
+    _summarise(result)
+
+
+def _summarise(result) -> None:
+    t = result.timings
+    ok, failed = t[t["status"] == "ok"], t[t["status"] == "failed"]
+
+    if len(failed):
+        print(f"\n{len(failed)} failed (model, fold, horizon) combination(s):")
+        for _, row in failed.drop_duplicates(["model", "stage"]).iterrows():
+            print(f"  {row['model']:20s} {row['stage']:8s} {row['error'][:90]}")
+
+    if len(ok):
+        fits = ok[~ok["fit_reused"]].groupby("model")["fit_seconds"].median()
+        preds = ok.groupby(["model", "horizon"])["predict_seconds"].median().unstack()
+        print("\nmedian fit seconds (per fold):")
+        print(fits.round(3).to_string())
+        print("\nmedian predict seconds by horizon:")
+        print(preds.round(3).to_string())
+
+    m = result.metrics
+    if len(m):
+        for metric in ("MASE", "RMSSE", "CRPS", "coverage_80"):
+            sub = m[m["metric"] == metric]
+            if not len(sub):
+                continue
+            table = sub.groupby(["model", "horizon"])["value"].median().unstack()
+            print(f"\nmedian {metric} by horizon:")
+            print(table.round(4).to_string())
+
+        undefined = m[m["metric"] == "sMAPE"]["n_undefined"].sum()
+        print(f"\nsMAPE undefined points: {int(undefined)}")
+
+    print(f"\nwrote {result.paths['metrics']}")
+    print(f"      {result.paths['timings']}")
+    print(f"      {result.paths['metadata']}")
+
+
+if __name__ == "__main__":
+    main()

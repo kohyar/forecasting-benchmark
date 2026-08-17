@@ -48,9 +48,9 @@ def test_profile_reports_volume_zero_share_and_span(raw_frame, cfg):
     assert set(prof.columns) >= {"unique_id", "n_obs", "n_missing", "total_volume",
                                  "zero_share", "first_ds", "last_ds"}
     b = prof.set_index("unique_id").loc["SUB_B@@ALBANY, NY - MULO"]
-    assert b["n_obs"] == 58, "observed weeks, missing grid rows excluded"
-    assert b["n_missing"] == 2
-    assert b["zero_share"] == pytest.approx(3 / 58)
+    assert b["n_obs"] == 60, "omitted weeks are zero-sales weeks, so they count"
+    assert b["n_missing"] == 0
+    assert b["zero_share"] == pytest.approx(5 / 60), "three reported plus two omitted"
 
 
 def test_returns_exactly_the_requested_size(population, config_dict):

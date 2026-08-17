@@ -27,6 +27,12 @@ TIME_VARYING = ["Dollars", "Units", "ARP", "ARP_EQ_Units"]
 YAGO = [f"{c}_Yago" for c in TIME_VARYING]
 YAGO_LAG_WEEKS = 52
 
+# Realised average price. Future values are unknowable and, with Dollars as the
+# target, are a factor of it - so what a model may see for the forecast window
+# is the last price observed at the origin, carried forward.
+PRICE = "ARP"
+PLANNED_PRICE = f"{PRICE}_planned"
+
 STATIC = ["Department", "Category", "Subcategory", "region", "channel", "geography_level"]
 
 NUMERIC = TIME_VARYING + YAGO
@@ -81,5 +87,5 @@ def covariate_groups(target: str) -> CovariateGroups:
     return CovariateGroups(
         static=list(STATIC),
         past_observed=[c for c in TIME_VARYING if c != target],
-        known_future=list(YAGO),
+        known_future=list(YAGO) + [PLANNED_PRICE],
     )

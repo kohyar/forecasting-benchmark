@@ -43,13 +43,35 @@ def normalize_panel(raw: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     target = cfg.data.target
     df["y"] = df[target]
 
+    df["row_present"] = True
+
     statics = [c for c in ("Department", "Category", "Subcategory", "region", "channel",
                            "geography_level", "internal_id", "Geography") if c in df.columns]
     covariates = [c for c in NUMERIC if c in df.columns]
-    keep = ["unique_id", "ds", "y"] + covariates + statics
+    keep = ["unique_id", "ds", "y", "row_present"] + covariates + statics
 
     panel = _reindex_to_weekly_grid(df[keep].sort_values(["unique_id", "ds"]), statics)
+    panel["row_present"] = panel["row_present"] == True  # noqa: E712 - NaN -> False
+    panel = _apply_absent_row_policy(panel, cfg)
     return panel.reset_index(drop=True)
+
+
+def _apply_absent_row_policy(panel: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """A week the export omits is a week with no sales, so its target is zero.
+
+    Evidence: sales in the week before a gap run at ~3.5% of the series median,
+    gaps cluster in the winter and early-spring weeks, and the export carries
+    almost no explicit zeros - it drops the row instead.
+    """
+    policy = cfg.data.absent_rows
+    if policy == "missing":
+        return panel
+    if policy != "zero":
+        raise ValueError(
+            f"absent_rows must be 'zero' or 'missing', got {policy!r}")
+
+    panel.loc[~panel["row_present"], "y"] = 0.0
+    return panel
 
 
 def _reindex_to_weekly_grid(df: pd.DataFrame, statics: list) -> pd.DataFrame:

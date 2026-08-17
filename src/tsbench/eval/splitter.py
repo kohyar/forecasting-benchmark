@@ -13,7 +13,13 @@ import numpy as np
 import pandas as pd
 
 from tsbench.config import Config
-from tsbench.data.schema import YAGO, YAGO_LAG_WEEKS, covariate_groups
+from tsbench.data.schema import (
+    PLANNED_PRICE,
+    PRICE,
+    YAGO,
+    YAGO_LAG_WEEKS,
+    covariate_groups,
+)
 
 WEEK = pd.Timedelta(days=7)
 
@@ -58,6 +64,11 @@ class Fold:
             keys = pd.MultiIndex.from_arrays(
                 [future["unique_id"], future["ds"] - YAGO_LAG_WEEKS * WEEK])
             future[col] = hist.reindex(keys).to_numpy()
+
+        if PRICE in self.train.columns:
+            last_price = (self.train.dropna(subset=[PRICE]).sort_values("ds")
+                          .groupby("unique_id")[PRICE].last())
+            future[PLANNED_PRICE] = future["unique_id"].map(last_price)
 
         future["week_of_year"] = future["ds"].dt.isocalendar().week.astype(int)
 

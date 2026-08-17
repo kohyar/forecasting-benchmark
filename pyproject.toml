@@ -4,14 +4,35 @@ version = "0.1.0"
 description = "Reproducible benchmark harness for weekly retail time-series forecasting (SPINS)"
 requires-python = ">=3.11"
 dependencies = [
-    "pandas>=2.2",
-    "numpy>=1.26",
+    "pandas>=2.2,<3.0",
+    # numpy 2.5 deprecates the timedelta unit pandas 2.3 still relies on
+    "numpy>=2.0,<2.5",
     "pyarrow>=15.0",
     "pyyaml>=6.0",
     "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
+# Benchmarked model libraries. LightGBM needs the OpenMP runtime
+# (`brew install libomp` on macOS).
+models = [
+    "statsforecast>=2.1",
+    "mlforecast>=1.1",
+    "neuralforecast>=3.2",
+    "lightgbm>=4.7",
+    "prophet>=1.4",
+    "torch>=2.5",
+    "optuna>=4.0",
+    "mlflow>=2.16",
+]
+# Zero-shot foundation models. Installed on the GPU runner, not required
+# locally - adapters degrade to unavailable when the import fails.
+foundation = [
+    "chronos-forecasting>=1.5",
+    "timesfm>=2.0",
+    "tabpfn-time-series>=1.0",
+    "granite-tsfm>=0.2",
+]
 dev = ["pytest>=8.0"]
 
 [build-system]

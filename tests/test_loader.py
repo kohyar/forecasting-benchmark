@@ -44,12 +44,12 @@ def test_target_column_from_config_becomes_y(raw_frame, config_dict):
     np.testing.assert_allclose(a["y"].to_numpy(), raw_a["Units"].to_numpy())
 
 
-def test_internal_gaps_become_explicit_missing_rows(panel):
+def test_omitted_weeks_are_restored_to_the_weekly_grid(panel):
     b = panel[panel["unique_id"] == "SUB_B@@ALBANY, NY - MULO"].sort_values("ds")
 
     assert len(b) == 60, "series is reindexed onto the complete weekly grid"
-    assert b["y"].isna().sum() == 2
     assert b["ds"].diff().dropna().eq(pd.Timedelta(days=7)).all()
+    assert (~b["row_present"]).sum() == 2, "the two omitted weeks are flagged"
 
 
 def test_grid_does_not_extend_past_a_series_own_history(raw_frame, cfg):
@@ -71,10 +71,11 @@ def test_null_strings_become_nan(raw_frame, cfg):
     assert panel["y"].isna().sum() >= 1
 
 
-def test_zero_targets_are_preserved_not_dropped(panel):
+def test_reported_zeros_are_preserved_not_dropped(panel):
     b = panel[panel["unique_id"] == "SUB_B@@ALBANY, NY - MULO"]
+    reported = b[b["row_present"]]
 
-    assert (b["y"] == 0).sum() == 3
+    assert (reported["y"] == 0).sum() == 3
 
 
 def test_panel_is_sorted_by_series_then_time(panel):

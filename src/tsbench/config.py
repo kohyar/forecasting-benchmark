@@ -19,6 +19,10 @@ class RunConfig:
     seed: int
     n_repeats: int
     output_dir: str
+    # Recorded on every timing row: parallelism changes wall clock, so it must
+    # be identical across models and visible in the results.
+    n_jobs: int = 1
+    device: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,10 @@ class DataConfig:
     target: str
     season_length: int
     scope: ScopeConfig
+    # Weeks the export omits entirely: evidence says these are weeks with no
+    # sales, not unmeasured weeks. "zero" treats them as observed zeros;
+    # "missing" keeps them NaN for a sensitivity check.
+    absent_rows: str = "zero"
 
 
 @dataclass(frozen=True)

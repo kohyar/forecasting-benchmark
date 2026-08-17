@@ -80,6 +80,41 @@ def test_yago_covariates_are_rebuilt_from_training_not_read_from_the_future(raw_
     np.testing.assert_allclose(a["Dollars_Yago"].to_numpy(), expected)
 
 
+def test_planned_price_is_the_last_price_seen_at_the_origin(folds):
+    """ARP is realised price, so future ARP is unknowable. What a planner does
+    have is today's price carried forward - built from training data only."""
+    for fold in folds:
+        future = fold.future_covariates(3)
+        last_seen = (fold.train.dropna(subset=["ARP"])
+                     .sort_values("ds").groupby("unique_id")["ARP"].last())
+
+        for uid, g in future.groupby("unique_id"):
+            assert g["ARP_planned"].nunique() == 1, "one price, held across the horizon"
+            assert g["ARP_planned"].iloc[0] == pytest.approx(last_seen[uid])
+
+
+def test_planned_price_ignores_future_prices(raw_frame, cfg):
+    poisoned = raw_frame.copy()
+    after = pd.to_datetime(poisoned["Time_Period_End_Date"]) > pd.Timestamp("2022-12-01")
+    poisoned.loc[after, "ARP"] = 12_345.0
+
+    panel = normalize_panel(poisoned, cfg)
+    fold = next(iter(RollingOriginSplitter(cfg).split(panel)))
+
+    clean = normalize_panel(raw_frame, cfg)
+    clean_fold = next(iter(RollingOriginSplitter(cfg).split(clean)))
+
+    assert fold.origin > pd.Timestamp("2022-12-01"), "the poison starts inside training"
+    assert (fold.future_covariates(3)["ARP_planned"] == 12_345.0).all(), \
+        "prices before the origin are legitimately used"
+    assert not (clean_fold.future_covariates(3)["ARP_planned"] == 12_345.0).any()
+
+
+def test_realised_price_is_never_exposed_for_the_forecast_window(folds):
+    for fold in folds:
+        assert "ARP" not in fold.future_covariates(3).columns
+
+
 def test_future_frame_only_spans_the_requested_horizon(folds):
     for fold in folds:
         future = fold.future_covariates(1)

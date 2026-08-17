@@ -120,13 +120,22 @@ def test_feasible_protocol_passes_the_assertion(splitter, panel):
     splitter.assert_protocol_feasible(panel)
 
 
-def test_eligibility_counts_observed_weeks_not_grid_rows(splitter, panel):
-    """The gappy series has fewer usable training weeks than calendar weeks."""
-    report = splitter.eligibility(panel).set_index("unique_id")
-    gappy = report.loc["SUB_B@@ALBANY, NY - MULO", "train_weeks_at_earliest_origin"]
-    clean = report.loc["SUB_A@@BOSTON, MA - MULO", "train_weeks_at_earliest_origin"]
+def test_eligibility_counts_observed_weeks_not_grid_rows(cfg, raw_frame):
+    """A week present in the export but carrying a null measure is unknown,
+    so it is not a usable training week."""
+    import numpy as np
 
-    assert gappy == clean - 2
+    df = raw_frame.copy()
+    mask = ((df["internal_id"] == "SUB_A")
+            & df["Time_Period_End_Date"].isin(["2022-05-15", "2022-05-22"]))
+    df.loc[mask, "Dollars"] = np.nan
+    panel = normalize_panel(df, cfg)
+
+    report = RollingOriginSplitter(cfg).eligibility(panel).set_index("unique_id")
+    nulled = report.loc["SUB_A@@BOSTON, MA - MULO", "train_weeks_at_earliest_origin"]
+    clean = report.loc["SUB_C@@CHICAGO, IL - MULO", "train_weeks_at_earliest_origin"]
+
+    assert nulled == clean - 2
 
 
 def test_series_ending_before_the_evaluation_span_are_flagged(raw_frame, cfg):

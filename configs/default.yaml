@@ -6,6 +6,10 @@ run:
   seed: 42
   n_repeats: 3
   output_dir: results
+  # Local models are embarrassingly parallel; -1 uses every core. Identical
+  # for every model in a run and recorded on every timing row.
+  n_jobs: -1
+  device: auto
 
 data:
   path: ../dataset/New_Query_2026_06_01_10_17_28.csv
@@ -13,6 +17,10 @@ data:
   # Weekly data: 52 periods per cycle. This drives every seasonal model and
   # the MASE/RMSSE denominator - do not change it without changing the data.
   season_length: 52
+  # Sales taper to ~3.5% of median in the week before a gap, gaps cluster in
+  # ISO weeks 49-52 and 16-17, and the export holds almost no explicit zeros:
+  # an omitted week is a zero-sales week, not an unmeasured one.
+  absent_rows: zero
   # MARKET x MULO only: census regions aggregate markets and FOOD is a subset
   # of MULO, so a wider scope would put parents and children in one sample and
   # correlate series that the statistical tests assume are independent.
