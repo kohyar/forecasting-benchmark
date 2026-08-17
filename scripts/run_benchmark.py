@@ -15,6 +15,7 @@ from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
 from tsbench.pipeline import ensure_sample
 from tsbench.runner import BenchmarkRunner
+from tsbench.tuning import tune_all
 
 
 def main() -> None:
@@ -24,6 +25,8 @@ def main() -> None:
     ap.add_argument("--n-series", type=int, help="override sampling.n_series")
     ap.add_argument("--run-name", help="override run.name")
     ap.add_argument("--no-mlflow", action="store_true")
+    ap.add_argument("--tune", action="store_true",
+                    help="search hyperparameters first, on data before fold 0")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--param", action="append", default=[],
                     metavar="MODEL:KEY=VALUE",
@@ -77,7 +80,19 @@ def main() -> None:
     print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
     print(f"models: {', '.join(cfg.models.enabled)}\n")
 
-    result = runner.run(panel, tuned_params=cfg.models.params)
+    params = dict(cfg.models.params)
+    if args.tune:
+        print(f"tuning: {cfg.tuning.budget_trials} trials per tunable model, "
+              f"0 for zero-shot")
+        tuned = tune_all(panel, cfg, cfg.models.enabled, registry=registry)
+        for name in cfg.models.enabled:
+            print(f"  {name:18s} budget={tuned.budget[name]:3d}  "
+                  f"best={tuned.best[name] or '-'}")
+        params = {name: {**params.get(name, {}), **tuned.best.get(name, {})}
+                  for name in cfg.models.enabled}
+        print(f"  trials -> {tuned.path}\n")
+
+    result = runner.run(panel, tuned_params=params)
     _summarise(result)
 
 

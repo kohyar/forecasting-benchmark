@@ -148,3 +148,15 @@ def test_best_params_beat_the_worst_trial(cfg, panel, reg):
     trials = result.trials.query("model == 'tunable' and status == 'ok'")
 
     assert result.best_value["tunable"] == pytest.approx(trials["value"].min())
+
+
+def test_tuned_parameters_are_usable_as_runner_input(cfg, panel, reg, tmp_path):
+    """The search is only useful if its output feeds the run."""
+    from tsbench.runner import BenchmarkRunner
+
+    result = tune_all(panel, cfg, ["tunable"], registry=reg)
+    run = BenchmarkRunner(cfg, registry=reg).run(
+        panel, models=["tunable"], tuned_params=result.best)
+
+    assert (run.timings["status"] == "ok").all()
+    assert (run.timings["tuning_trials"] == cfg.tuning.budget_trials).all()
