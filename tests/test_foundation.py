@@ -174,3 +174,32 @@ def test_bf16_is_used_only_where_the_gpu_supports_it(monkeypatch):
 
     assert preferred_dtype("cpu") == torch.float32
     assert preferred_dtype("mps") == torch.float32
+
+
+def test_emulated_bf16_does_not_count(monkeypatch):
+    """T4 reports bf16 support *with emulation*; that path is slow or breaks
+    in some kernels, so only native support may select bf16."""
+    import torch
+
+    from tsbench.models.foundation_adapters import preferred_dtype
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+    def emulated_only(including_emulation=True):
+        return including_emulation
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", emulated_only)
+    assert preferred_dtype("cuda") == torch.float32
+
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda including_emulation=True: True)
+    assert preferred_dtype("cuda") == torch.bfloat16
+
+
+def test_bf16_probe_tolerates_an_older_torch_signature(monkeypatch):
+    import torch
+
+    from tsbench.models.foundation_adapters import preferred_dtype
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)  # no kwarg
+
+    assert preferred_dtype("cuda") == torch.bfloat16

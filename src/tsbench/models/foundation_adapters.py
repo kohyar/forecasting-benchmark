@@ -18,13 +18,20 @@ from tsbench.models.registry import register
 
 
 def preferred_dtype(device: str):
-    """bf16 on GPUs that have it, float32 everywhere else. T4s (sm_75) lack
-    bf16 support and would otherwise fail or silently upcast."""
+    """bf16 only where the GPU supports it natively, float32 everywhere else.
+
+    A T4 (sm_75) reports bf16 support *with emulation*, which is slow and
+    breaks in some kernels, so emulated support does not count.
+    """
     import torch
 
-    if device == "cuda" and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-        return torch.bfloat16
-    return torch.float32
+    if device != "cuda" or not torch.cuda.is_available():
+        return torch.float32
+    try:
+        native = torch.cuda.is_bf16_supported(including_emulation=False)
+    except TypeError:  # older torch: no emulation flag, answer is native-only
+        native = torch.cuda.is_bf16_supported()
+    return torch.bfloat16 if native else torch.float32
 
 
 class FoundationAdapter(ModelAdapter):

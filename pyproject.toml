@@ -33,6 +33,7 @@ foundation = [
     "timesfm>=2.0",
     "tabpfn-time-series>=1.0",
     "granite-tsfm>=0.2",
+    "toto-ts>=0.1",
 ]
 dev = ["pytest>=8.0"]
 

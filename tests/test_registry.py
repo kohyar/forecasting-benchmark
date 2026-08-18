@@ -194,3 +194,32 @@ def test_all_nan_forecasts_are_an_error(expected):
 
     with pytest.raises(AdapterError, match="NaN"):
         validate_prediction(bad, expected["ids"], expected["ds"])
+
+
+def test_unavailable_models_are_partitioned_out_not_fatal(scratch, cfg):
+    """A missing library must not stop the rest of a long run."""
+    from tsbench.models.registry import partition_available
+
+    class Missing(Dummy):
+        name = "missing"
+
+        @classmethod
+        def is_available(cls):
+            return False, "nosuchlib is not installed"
+
+    scratch.register(Dummy)
+    scratch.register(Missing)
+
+    runnable, skipped = partition_available(scratch, ["dummy", "missing"])
+
+    assert runnable == ["dummy"]
+    assert skipped == [("missing", "nosuchlib is not installed")]
+
+
+def test_unknown_names_are_reported_separately(scratch):
+    from tsbench.models.registry import partition_available
+
+    scratch.register(Dummy)
+
+    with pytest.raises(KeyError, match="nope"):
+        partition_available(scratch, ["dummy", "nope"])

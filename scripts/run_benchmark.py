@@ -14,6 +14,7 @@ import yaml
 from tsbench.config import Config
 from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
+from tsbench.models.registry import partition_available
 from tsbench.pipeline import ensure_sample
 from tsbench.runner import BenchmarkRunner, collect
 from tsbench.tuning import tune_all
@@ -34,6 +35,8 @@ def main() -> None:
                     help="assemble results from existing checkpoints; run nothing")
     ap.add_argument("--status", action="store_true",
                     help="print checkpoint progress per model and exit")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit if any requested model is unavailable instead of skipping it")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--param", action="append", default=[],
                     metavar="MODEL:KEY=VALUE",
@@ -67,13 +70,18 @@ def main() -> None:
                   f"{status['disabled_reason']}")
         return
 
-    unknown = [m for m in cfg.models.enabled if m not in registry.names()]
-    if unknown:
-        sys.exit(f"unknown model(s): {unknown}\nregistered: {registry.names()}")
-    blocked = [m for m in cfg.models.enabled if not registry.status(m)["available"]]
-    if blocked:
-        sys.exit("\n".join(f"{m} is unavailable: {registry.status(m)['disabled_reason']}"
-                           for m in blocked))
+    try:
+        runnable, skipped = partition_available(registry, cfg.models.enabled)
+    except KeyError as exc:
+        sys.exit(str(exc))
+    for name, reason in skipped:
+        print(f"SKIPPING {name}: {reason}")
+    if skipped and args.strict:
+        sys.exit(f"{len(skipped)} model(s) unavailable and --strict was given")
+    if not runnable:
+        sys.exit("no runnable models")
+    raw["models"]["enabled"] = runnable
+    cfg = Config.from_dict(raw)
 
     if args.status:
         _print_progress(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False),
@@ -117,6 +125,8 @@ def main() -> None:
 
     result = runner.run(panel, tuned_params=params)
     _summarise(result)
+    for name, reason in skipped:
+        print(f"NOTE: {name} was skipped ({reason})")
 
 
 def _print_progress(runner, models, params) -> None:

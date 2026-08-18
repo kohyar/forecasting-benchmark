@@ -79,6 +79,25 @@ class Registry:
         return [self.status(n) for n in self.names()]
 
 
+def partition_available(registry: "Registry", names) -> tuple:
+    """Split requested models into runnable and (skipped, reason).
+
+    Unknown names are an error - a typo must not become a silent omission.
+    Unavailable ones are not: a missing library must not stop a long run.
+    """
+    unknown = [n for n in names if n not in registry.names()]
+    if unknown:
+        raise KeyError(f"unknown model(s) {unknown}; registered: {registry.names()}")
+    runnable, skipped = [], []
+    for name in names:
+        status = registry.status(name)
+        if status["available"]:
+            runnable.append(name)
+        else:
+            skipped.append((name, status["disabled_reason"]))
+    return runnable, skipped
+
+
 _DEFAULT = Registry()
 _POPULATED = False
 

@@ -16,7 +16,7 @@
 
 # MAGIC %pip install --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
 # MAGIC %pip install "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
-# MAGIC %pip install "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2"
+# MAGIC %pip install "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2" "toto-ts>=0.1"
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
