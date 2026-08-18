@@ -8,7 +8,7 @@ run:
   seed: 42
   n_repeats: 3
   # results/ must be on a Volume: cluster-local disk vanishes at termination
-  output_dir: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/results
+  output_dir: /Volumes/forecaster_develop/bronze/benchmark/results
   # scratch stays on local disk; the Volume is a network mount
   work_dir: /local_disk0/tmp
   n_jobs: -1
@@ -16,7 +16,7 @@ run:
   execution: subprocess
 
 data:
-  path: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/New_Query_2026_06_01_10_17_28.csv
+  path: /Volumes/forecaster_develop/bronze/benchmark/New_Query_2026_06_01_10_17_28.csv
   target: Dollars
   season_length: 52
   absent_rows: zero
@@ -29,7 +29,7 @@ sampling:
   volume_deciles: 10
   zero_share_bins: [0.0, 0.05, 0.2, 1.01]
   min_observed_weeks: 156
-  sample_path: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/sample_series.csv
+  sample_path: /Volumes/forecaster_develop/bronze/benchmark/sample_series.csv
 
 protocol:
   folds: 5

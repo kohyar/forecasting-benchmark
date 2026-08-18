@@ -7,6 +7,7 @@ reproducible from config + seed alone.
 """
 import argparse
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -44,7 +45,8 @@ def main() -> None:
 
     if args.n_series:
         raw["sampling"]["n_series"] = args.n_series
-        raw["sampling"]["sample_path"] = f"data/sample_series_{args.n_series}.csv"
+        raw["sampling"]["sample_path"] = str(
+            Path(raw["sampling"]["sample_path"]).with_name(f"sample_series_{args.n_series}.csv"))
         raw["run"]["name"] = args.run_name or f"{raw['run']['name']}-n{args.n_series}"
     elif args.run_name:
         raw["run"]["name"] = args.run_name

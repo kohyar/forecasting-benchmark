@@ -5,6 +5,7 @@ restart - twelve hours lost to an OOM at model nine is twelve hours gone. Every
 row carries the config hash, seed and tuning budget so it traces back to a run.
 """
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -453,7 +454,10 @@ class BenchmarkRunner:
         except ImportError:
             return
         try:
-            mlflow.set_experiment(self.cfg.run.name)
+            experiment = self.cfg.run.name
+            if os.environ.get("DATABRICKS_RUNTIME_VERSION") and not experiment.startswith("/"):
+                experiment = f"/Shared/tsbench/{experiment}"
+            mlflow.set_experiment(experiment)
             with mlflow.start_run(run_name=f"{self.cfg.run.name}-{metadata['config_hash']}"):
                 mlflow.log_params({
                     "config_hash": self.cfg.hash,

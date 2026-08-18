@@ -5,42 +5,41 @@
 # MAGIC Run cell by cell the first time. Every cell is safe to re-run: the
 # MAGIC benchmark resumes from `checkpoints/` on the Volume, so a cluster
 # MAGIC restart, a killed cell or a failed model costs only the unfinished
-# MAGIC (model, fold) units. Keep this notebook cell running while the
-# MAGIC benchmark runs - a running command is what stops auto-termination.
+# MAGIC (model, fold) units. Keep the running cell open - a running command is
+# MAGIC what stops the cluster's auto-termination.
 
 # COMMAND ----------
 
-# MAGIC %md ## 0. Settings - edit these three
+# MAGIC %md ## 1. Install (once per cluster start; the runtime's CUDA torch is kept)
 
 # COMMAND ----------
 
-VOLUME = "/Volumes/CATALOG/SCHEMA/VOLUME/tsbench"   # Unity Catalog volume root
-REPO = "/Workspace/Repos/<you>/spins-forecasting-benchmark"  # Repos clone
-CONFIG = f"{REPO}/configs/databricks-t4.yaml"
-
-# COMMAND ----------
-
-# MAGIC %md ## 1. Install (once per cluster start; runtime torch is kept)
-
-# COMMAND ----------
-
-# MAGIC %pip install --no-deps -e $REPO
-# MAGIC %pip install "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" pyarrow pyyaml scipy matplotlib
+# MAGIC %pip install --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
+# MAGIC %pip install "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
 # MAGIC %pip install "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2"
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
 import os, subprocess, sys
-VOLUME = "/Volumes/CATALOG/SCHEMA/VOLUME/tsbench"
-REPO = "/Workspace/Repos/<you>/spins-forecasting-benchmark"
+
+VOLUME = "/Volumes/forecaster_develop/bronze/benchmark"
+REPO = "/Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark"
 CONFIG = f"{REPO}/configs/databricks-t4.yaml"
+
 os.chdir(REPO)
 os.makedirs(f"{VOLUME}/results", exist_ok=True)
 os.makedirs("/local_disk0/tmp", exist_ok=True)
 
+# Worker processes must see exactly what this notebook sees: the repo's src
+# and the notebook-scoped site-packages that %pip just installed.
+extra = [p for p in sys.path if p and ("pythonEnv" in p or p.endswith("site-packages"))]
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [f"{REPO}/src", *extra, os.environ.get("PYTHONPATH", "")]).strip(os.pathsep)
+
+
 def sh(*args):
-    """Run a script and stream its output; raise if it fails."""
+    """Run a repo script with the notebook's interpreter, streaming output."""
     proc = subprocess.run([sys.executable, *args], text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"exit {proc.returncode}: {' '.join(args)}")
@@ -55,33 +54,42 @@ import torch
 print("cuda:", torch.cuda.is_available(),
       torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-",
       "| bf16:", torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+print("data:", os.path.exists(f"{VOLUME}/New_Query_2026_06_01_10_17_28.csv"))
 sh("scripts/run_benchmark.py", "--config", CONFIG, "--list-models")
-print(os.listdir(VOLUME))
 
 # COMMAND ----------
 
-# MAGIC %md ## 3. Smoke test - 50 series, two baselines. Twenty minutes; proves the pipeline here.
-
-# COMMAND ----------
-
-sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
-   "--models", "naive,seasonal_naive", "--run-name", "smoke-50")
-
-# COMMAND ----------
-
-# MAGIC %md ## 4. Foundation adapters, one at a time on 50 series
-# MAGIC These five are unverified against real weights. Each failure is
-# MAGIC recorded, not fatal; fix the adapter and re-run the cell - only the
-# MAGIC failed one reruns.
+# MAGIC %md ## 3. Smoke test - 50 series, two baselines. Proves the pipeline here and gives the per-hour projection.
 
 # COMMAND ----------
 
 sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
-   "--models", "chronos2,timesfm,toto,tabpfn_ts,ttm", "--run-name", "smoke-50")
+   "--models", "naive,seasonal_naive", "--run-name", "smoke-50", "--no-mlflow")
 
 # COMMAND ----------
 
-# MAGIC %md ## 5. Full run. Re-run this cell as many times as needed - it resumes.
+# MAGIC %md ## 4. Foundation adapters on 50 series
+# MAGIC These five are unverified against real weights. A failure is recorded,
+# MAGIC not fatal; fix the adapter, `git pull` in Repos, re-run this cell -
+# MAGIC only the failed ones rerun.
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
+   "--models", "chronos2,timesfm,toto,tabpfn_ts,ttm", "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ## 5. Everything on 50 series - the full roster, one pass, before spending on 1,000
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
+   "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ## 6. Full run. Re-run this cell as many times as needed - it resumes.
 
 # COMMAND ----------
 
@@ -89,7 +97,7 @@ sh("scripts/run_benchmark.py", "--config", CONFIG)
 
 # COMMAND ----------
 
-# MAGIC %md ## Progress / partial results at any time (does not run anything)
+# MAGIC %md ## Progress / partial results at any time (runs nothing)
 
 # COMMAND ----------
 
@@ -98,7 +106,7 @@ sh("scripts/run_benchmark.py", "--config", CONFIG, "--collect-only")
 
 # COMMAND ----------
 
-# MAGIC %md ## 6. Statistics and tables, once the run is complete
+# MAGIC %md ## 7. Statistics and tables, once the run is complete
 
 # COMMAND ----------
 

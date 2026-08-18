@@ -3,6 +3,10 @@
 /data/
 /results/
 
+# MLflow local tracking artefacts
+mlflow.db
+mlruns/
+
 .venv/
 __pycache__/
 *.py[cod]
