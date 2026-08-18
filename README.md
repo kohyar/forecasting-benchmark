@@ -257,9 +257,74 @@ rather than picking the friendlier answer.
 | `analysis/` | accuracy and cost tables, post-hoc results, CD diagrams |
 | `checkpoints/<config-hash>/` | per (model, fold), so a crash resumes |
 
-Checkpoints are keyed by config hash: a protocol change cannot inherit the
-previous run's completed work. MLflow is logged when available; Parquet is the
-system of record.
+MLflow is logged when available; Parquet is the system of record.
+
+## Resuming
+
+Built for long runs on rented hardware: a crash, a killed cell, a cluster
+restart or a broken model costs only the unfinished (model, fold) units.
+
+Layout: `checkpoints/<model>/<result_key>/fold<N>[__cov]__{metrics,timings}.parquet`.
+
+**`result_key` covers only what determines that model's results** — data
+identity, sampling, protocol, metrics, seed, repeats, tuning budget, device,
+`n_jobs`, and *that model's own* parameters. It excludes file paths, the run
+name, cost metadata, the enabled list and every other model's parameters. So:
+
+| You change… | What reruns |
+|---|---|
+| TFT's batch size | TFT only |
+| the enabled list | only models with no checkpoint |
+| `data.path`, `output_dir`, `run.name` (moving to a cluster) | nothing — same keys |
+| protocol, seed, season length | everything, by design |
+
+`configs/default.yaml` and `configs/databricks-t4.yaml` produce identical
+result keys and sample keys — checkpoints and the frozen sample are
+interchangeable between machines. The full `config_hash` still differs and is
+recorded on every row for provenance; `result_key` and `git_commit` are too.
+
+**Failures are retried by default.** A checkpoint containing any failed row is
+discarded on the next run and that (model, fold) runs again — so after fixing
+an adapter you just re-run; nothing is deleted by hand. `--keep-failed` turns
+that off for a model that fails for a reason you accept. If you *also* change
+the model's parameters, it gets a new key and the old failure stays on disk as
+a record.
+
+**Writes are atomic** (temp file + rename), metrics before timings, so a kill
+mid-write cannot leave a half-file under the real name; a corrupt checkpoint is
+treated as absent, not as a crash. **Aggregate results are refreshed after
+every model**, so `metrics.parquet` on disk is never more than one model behind.
+
+```bash
+python scripts/run_benchmark.py --config configs/databricks-t4.yaml --status        # progress, runs nothing
+python scripts/run_benchmark.py --config configs/databricks-t4.yaml --collect-only  # assemble partial results
+python scripts/run_benchmark.py --config configs/databricks-t4.yaml                 # run / resume
+```
+
+The frozen sample is validated by `sample_key` (data identity + sampling +
+protocol + seed), so it survives a move between machines and rebuilds only when
+something that could change eligibility changes.
+
+## Databricks
+
+`configs/databricks-t4.yaml` and `databricks/run_benchmark_notebook.py` are the
+cluster-side pair for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU).
+Fill in the Volume path and the `cost.usd_per_hour` (VM rate + 1.5 DBU/h ×
+your DBU rate). Three rules that the notebook encodes:
+
+- **`results/` and the sample live on a Volume**, never on cluster-local disk —
+  the cluster auto-terminates and local disk goes with it. Scratch
+  (`run.work_dir`) stays on `/local_disk0`, because a Volume is a network mount.
+- **Keep the notebook cell running** — a running command is what stops
+  auto-termination; a background process from the web terminal is not.
+- **Do not let pip reinstall torch**; the runtime's CUDA build is the one you
+  want. The notebook installs the package with `--no-deps` and the libraries
+  explicitly.
+
+The T4 has no bf16; `preferred_dtype()` falls Chronos-2 back to float32 there.
+Run order in the notebook: smoke test on two baselines, then the five
+foundation adapters one at a time (each failure is recorded and retried after
+the fix), then the full run — re-run that cell as many times as it takes.
 
 ## Environment notes
 

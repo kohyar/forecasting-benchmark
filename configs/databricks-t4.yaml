@@ -1,0 +1,75 @@
+# Databricks single-node run: Standard_NC8as_T4_v3, 17.3 LTS ML (GPU).
+# Same protocol as default.yaml; only locations, hardware and cost differ,
+# none of which touch the result key - so checkpoints made here are keyed
+# identically to a laptop run of the same protocol.
+
+run:
+  name: spins-weekly-v1
+  seed: 42
+  n_repeats: 3
+  # results/ must be on a Volume: cluster-local disk vanishes at termination
+  output_dir: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/results
+  # scratch stays on local disk; the Volume is a network mount
+  work_dir: /local_disk0/tmp
+  n_jobs: -1
+  device: auto
+  execution: subprocess
+
+data:
+  path: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/New_Query_2026_06_01_10_17_28.csv
+  target: Dollars
+  season_length: 52
+  absent_rows: zero
+  scope:
+    geography_level: [MARKET]
+    channels: ["CONVENTIONAL|MULTI OUTLET"]
+
+sampling:
+  n_series: 1000
+  volume_deciles: 10
+  zero_share_bins: [0.0, 0.05, 0.2, 1.01]
+  min_observed_weeks: 156
+  sample_path: /Volumes/CATALOG/SCHEMA/VOLUME/tsbench/sample_series.csv
+
+protocol:
+  folds: 5
+  step: 4
+  horizons: [4, 13]
+  min_train_weeks: 104
+
+tuning:
+  budget_trials: 20
+
+metrics:
+  quantile_levels: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+  coverage_levels: [0.8]
+  mase_denominator_window: earliest_origin
+
+cost:
+  # VM list price + 1.5 DBU/h x your DBU rate. Confirm both in the portal;
+  # this is what turns wall clock into $/1k series in the paper.
+  usd_per_hour: null
+  instance_type: Standard_NC8as_T4_v3
+  runtime_version: 17.3 LTS ML (GPU)
+
+models:
+  covariate_ablation: false
+  enabled:
+    - naive
+    - seasonal_naive
+    - autoets
+    - autoarima
+    - autotheta
+    - prophet
+    - lightgbm_local
+    - lightgbm_global
+    - tft
+    - patchtst
+    - nhits
+    - dlinear
+    - chronos2
+    - timesfm
+    - toto
+    - tabpfn_ts
+    - ttm
+  params: {}

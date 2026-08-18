@@ -156,3 +156,21 @@ def test_every_foundation_adapter_is_registered_and_reports_its_package():
     for name in foundation:
         status = reg.status(name)
         assert status["available"] or status["disabled_reason"]
+
+
+def test_bf16_is_used_only_where_the_gpu_supports_it(monkeypatch):
+    """T4 (sm_75) has no bf16; Chronos-2 must fall back to float32 there
+    rather than crash or silently upcast."""
+    import torch
+
+    from tsbench.models.foundation_adapters import preferred_dtype
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: False)
+    assert preferred_dtype("cuda") == torch.float32
+
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
+    assert preferred_dtype("cuda") == torch.bfloat16
+
+    assert preferred_dtype("cpu") == torch.float32
+    assert preferred_dtype("mps") == torch.float32

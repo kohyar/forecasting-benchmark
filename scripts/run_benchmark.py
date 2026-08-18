@@ -14,7 +14,7 @@ from tsbench.config import Config
 from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
 from tsbench.pipeline import ensure_sample
-from tsbench.runner import BenchmarkRunner
+from tsbench.runner import BenchmarkRunner, collect
 from tsbench.tuning import tune_all
 
 
@@ -27,6 +27,12 @@ def main() -> None:
     ap.add_argument("--no-mlflow", action="store_true")
     ap.add_argument("--tune", action="store_true",
                     help="search hyperparameters first, on data before fold 0")
+    ap.add_argument("--keep-failed", action="store_true",
+                    help="do not retry (model, fold) checkpoints that failed last time")
+    ap.add_argument("--collect-only", action="store_true",
+                    help="assemble results from existing checkpoints; run nothing")
+    ap.add_argument("--status", action="store_true",
+                    help="print checkpoint progress per model and exit")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--param", action="append", default=[],
                     metavar="MODEL:KEY=VALUE",
@@ -67,6 +73,18 @@ def main() -> None:
         sys.exit("\n".join(f"{m} is unavailable: {registry.status(m)['disabled_reason']}"
                            for m in blocked))
 
+    if args.status:
+        _print_progress(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False),
+                        cfg.models.enabled, cfg.models.params)
+        return
+
+    if args.collect_only:
+        result = collect(cfg, models=cfg.models.enabled, registry=registry,
+                         tuned_params=cfg.models.params)
+        print("assembled from checkpoints (nothing was run)")
+        _summarise(result)
+        return
+
     print(f"config {args.config}  hash={cfg.hash}  seed={cfg.run.seed}  "
           f"repeats={cfg.run.n_repeats}")
     panel = load_panel(cfg)
@@ -76,9 +94,12 @@ def main() -> None:
           f"-> {cfg.sampling.sample_path}")
     print(f"panel:  {len(panel):,} rows  {panel['ds'].min().date()} .. {panel['ds'].max().date()}")
 
-    runner = BenchmarkRunner(cfg, registry=registry, mlflow_enabled=not args.no_mlflow)
+    runner = BenchmarkRunner(cfg, registry=registry, mlflow_enabled=not args.no_mlflow,
+                             retry_failed=not args.keep_failed)
     print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
-    print(f"models: {', '.join(cfg.models.enabled)}\n")
+    print(f"models: {', '.join(cfg.models.enabled)}")
+    _print_progress(runner, cfg.models.enabled, cfg.models.params)
+    print()
 
     params = dict(cfg.models.params)
     if args.tune:
@@ -94,6 +115,19 @@ def main() -> None:
 
     result = runner.run(panel, tuned_params=params)
     _summarise(result)
+
+
+def _print_progress(runner, models, params) -> None:
+    progress = runner.progress(models, params)
+    done = sum(p["complete"] for p in progress.values())
+    total = sum(p["expected"] for p in progress.values())
+    print(f"checkpoints: {done}/{total} (model, fold) units complete "
+          f"under {runner.checkpoint_root}")
+    for name, p in progress.items():
+        state = ("done" if p["complete"] == p["expected"]
+                 else f"{p['complete']}/{p['expected']}"
+                      + (f", {p['failed']} failed" if p["failed"] else ""))
+        print(f"  {name:18s} {state}")
 
 
 def _summarise(result) -> None:

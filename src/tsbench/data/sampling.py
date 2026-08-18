@@ -99,6 +99,7 @@ def save_sample(sample: pd.DataFrame, path, cfg: Config) -> None:
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "seed": cfg.run.seed,
         "config_hash": cfg.hash,
+        "sample_key": cfg.sample_key,
         "n_series": len(sample),
         "target": cfg.data.target,
         "scope": {"geography_level": cfg.data.scope.geography_level,
@@ -123,8 +124,12 @@ def load_sample(path, expect: Config | None = None):
         meta = json.loads(first[len(_META_PREFIX):])
         sample = _canonical_dates(pd.read_csv(fh, parse_dates=_DATE_COLS))
 
-    if expect is not None and meta["config_hash"] != expect.hash:
-        raise ValueError(
-            f"sample config_hash {meta['config_hash']} does not match the current "
-            f"config {expect.hash}: regenerate the sample or restore the config")
+    if expect is not None:
+        # Older files carry only the full config hash; treat that as the key.
+        found = meta.get("sample_key", meta.get("config_hash"))
+        if found != expect.sample_key:
+            raise ValueError(
+                f"sample config_hash/sample_key {found} does not match the current "
+                f"config {expect.sample_key}: regenerate the sample or restore the "
+                f"data, sampling or protocol settings")
     return sample, meta

@@ -54,3 +54,32 @@ def test_a_changed_config_forces_a_rebuild(panel, config_dict, tmp_path):
 
     assert meta["built"] is True
     assert meta["config_hash"] == changed.hash
+
+
+def test_moving_the_data_or_output_path_keeps_the_frozen_sample(panel, config_dict, tmp_path):
+    """The sample depends on data content, sampling and protocol - not on where
+    files live. Otherwise moving to a cluster silently rebuilds it."""
+    config_dict["sampling"]["n_series"] = 2
+    config_dict["sampling"]["sample_path"] = str(tmp_path / "sample.csv")
+    ensure_sample(panel, Config.from_dict(config_dict))
+
+    config_dict["data"]["path"] = "/Volumes/c/s/v/export.csv"
+    config_dict["run"]["output_dir"] = "/Volumes/c/s/v/results"
+    config_dict["run"]["name"] = "on-the-cluster"
+    config_dict["models"]["enabled"] = ["naive", "autoets"]
+    _, meta = ensure_sample(panel, Config.from_dict(config_dict))
+
+    assert meta["built"] is False
+
+
+def test_changing_the_protocol_rebuilds_the_sample(panel, config_dict, tmp_path):
+    """Eligibility depends on the origins, so a protocol change can change
+    which series are even allowed in."""
+    config_dict["sampling"]["n_series"] = 2
+    config_dict["sampling"]["sample_path"] = str(tmp_path / "sample.csv")
+    ensure_sample(panel, Config.from_dict(config_dict))
+
+    config_dict["protocol"]["folds"] = 1
+    _, meta = ensure_sample(panel, Config.from_dict(config_dict))
+
+    assert meta["built"] is True

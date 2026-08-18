@@ -27,6 +27,9 @@ class RunConfig:
     # share one (lightgbm and torch both bundle OpenMP), and a segfault or an
     # OOM kill can only be survived by watching a child exit.
     execution: str = "subprocess"
+    # Scratch for worker hand-off. Defaults to the system temp dir; keep it on
+    # local disk even when output_dir is a network volume.
+    work_dir: str = None
 
 
 @dataclass(frozen=True)
@@ -119,12 +122,48 @@ class Config:
 
     @property
     def hash(self) -> str:
-        """Stable identity of the run configuration, recorded on every output row."""
-        canonical = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+        """Stable identity of the whole run configuration, recorded on every
+        output row for provenance."""
+        return _digest(self.to_dict())
+
+    def result_key(self, model: str, params: dict | None = None) -> str:
+        """What determines one model's results.
+
+        Excludes file locations, the run name, cost metadata, the enabled list
+        and every *other* model's parameters - so fixing one model's batch size,
+        or moving the run to a cluster, does not invalidate everyone else's
+        completed work. Includes device and n_jobs, because they change the
+        timings that sit next to the accuracy numbers.
+        """
+        d = self.to_dict()
+        d["run"] = {k: v for k, v in d["run"].items()
+                    if k not in ("name", "output_dir", "work_dir")}
+        d["data"] = {k: v for k, v in d["data"].items() if k != "path"}
+        d["sampling"] = {k: v for k, v in d["sampling"].items() if k != "sample_path"}
+        d.pop("cost", None)
+        d["models"] = {"model": model, "params": params or {}}
+        return _digest(d)
+
+    @property
+    def sample_key(self) -> str:
+        """What determines the frozen sample: the data's identity, the sampling
+        scheme, and the protocol (eligibility depends on the origins)."""
+        d = self.to_dict()
+        return _digest({
+            "seed": d["run"]["seed"],
+            "data": {k: v for k, v in d["data"].items() if k != "path"},
+            "sampling": {k: v for k, v in d["sampling"].items() if k != "sample_path"},
+            "protocol": d["protocol"],
+            "mase_denominator_window": d["metrics"]["mase_denominator_window"],
+        })
 
     def dump_yaml(self, path) -> None:
         Path(path).write_text(yaml.safe_dump(self.to_dict(), sort_keys=True))
+
+
+def _digest(payload) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 def _build(cls, data: Any, path: str):

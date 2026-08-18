@@ -50,18 +50,31 @@ class RunResult:
 
 
 class BenchmarkRunner:
-    def __init__(self, cfg: Config, registry=None, mlflow_enabled: bool = True):
+    def __init__(self, cfg: Config, registry=None, mlflow_enabled: bool = True,
+                 retry_failed: bool = True):
         self.cfg = cfg
         self.registry = registry or registry_module.default()
         self.device = resolve_device(cfg.run.device)
         self.out_dir = Path(cfg.run.output_dir) / cfg.run.name
-        # Keyed by config hash: a protocol change must not inherit the previous
-        # run's completed work.
-        self.checkpoint_dir = self.out_dir / "checkpoints" / cfg.hash
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.work_root = self.out_dir / "work"
-        self.work_root.mkdir(parents=True, exist_ok=True)
+        # checkpoints/<model>/<result_key>/fold<N>[__cov]__{metrics,timings}.parquet
+        # The key covers only what determines *that* model's results, so a fix
+        # to one model - or a move to another machine - never invalidates the
+        # others' completed work.
+        self.checkpoint_root = self.out_dir / "checkpoints"
+        self.checkpoint_root.mkdir(parents=True, exist_ok=True)
+        # Scratch for worker hand-off lives on local disk, never under results:
+        # results may sit on a network volume where thousands of small
+        # transient files are slow, and scratch must not survive a crash.
+        self.work_root = Path(cfg.run.work_dir or tempfile.gettempdir()) / "tsbench-work"
         self.mlflow_enabled = mlflow_enabled
+        # A failed checkpoint is retried on the next run by default: a failure
+        # usually means something to fix, and after the fix the model must run
+        # again without anyone deleting files by hand.
+        self.retry_failed = retry_failed
+        self._git_commit = _git_commit()
+
+    def result_key(self, model: str, params: dict | None = None) -> str:
+        return self.cfg.result_key(model, params)
 
     # -- orchestration ----------------------------------------------------
 
@@ -75,25 +88,31 @@ class BenchmarkRunner:
 
         metrics, timings = [], []
         for name in models:
+            params = tuned_params.get(name, {})
+            key = self.result_key(name, params)
             for use_covariates in self._covariate_arms(name):
                 for fold in folds:
-                    done = self._load_checkpoint(name, fold.fold_id, use_covariates)
+                    done = self._load_checkpoint(name, key, fold.fold_id, use_covariates)
                     if done is not None:
                         metrics.append(done["metrics"])
                         timings.append(done["timings"])
                         continue
 
-                    m, t = self._run_model_fold(name, fold, denominators,
-                                                tuned_params.get(name, {}),
-                                                use_covariates)
+                    m, t = self._run_model_fold(name, fold, denominators, params,
+                                                use_covariates, key)
                     t = t.assign(resumed=False)
-                    self._save_checkpoint(name, fold.fold_id, use_covariates, m, t)
+                    self._save_checkpoint(name, key, fold.fold_id, use_covariates, m, t)
                     metrics.append(m)
                     timings.append(t)
 
+            # Flush after every model so partial results are on disk if the
+            # run dies or the operator kills it.
+            self._write(_concat(metrics), _concat(timings),
+                        self._metadata(panel, splitter, models, tuned_params))
+
         metrics = _concat(metrics)
         timings = _concat(timings)
-        metadata = self._metadata(panel, splitter, models)
+        metadata = self._metadata(panel, splitter, models, tuned_params)
         paths = self._write(metrics, timings, metadata)
         self._log_mlflow(metrics, timings, metadata)
         return RunResult(metrics=metrics, timings=timings, metadata=metadata, paths=paths)
@@ -107,7 +126,7 @@ class BenchmarkRunner:
         return [False, True] if adapter.supports_covariates() else [False]
 
     def _run_model_fold(self, name: str, fold, denominators, params: dict,
-                        use_covariates: bool = False):
+                        use_covariates: bool = False, result_key: str = ""):
         train, self._impute_report = impute_gaps(fold.train)
         assert_frame_reaches_origin(train, fold.origin)
         adapter_cls = self.registry.get(name)
@@ -124,17 +143,20 @@ class BenchmarkRunner:
                 fit_key = f"{name}|f{fold.fold_id}|r{repeat}|h{group[0] if horizon_at_fit else 'all'}"
                 m, t = self._fit_and_predict(
                     name, adapter_cls, params, train, fold, group, repeat, seed,
-                    denominators, fit_key, use_covariates)
+                    denominators, fit_key, use_covariates, result_key)
                 metrics.extend(m)
                 timings.extend(t)
         return _concat(metrics), pd.DataFrame(timings)
 
     def _fit_and_predict(self, name, adapter_cls, params, train, fold, horizons,
-                         repeat, seed, denominators, fit_key, use_covariates=False):
+                         repeat, seed, denominators, fit_key, use_covariates=False,
+                         result_key=""):
         set_seeds(seed)
         common = {
             "model": name,
             "covariates": use_covariates,
+            "result_key": result_key,
+            "git_commit": self._git_commit,
             "family": adapter_cls.family,
             "fold": fold.fold_id,
             "origin": fold.origin,
@@ -161,6 +183,7 @@ class BenchmarkRunner:
                             denominators, common):
         """Hand the work to a child process so a segfault or an OOM kill is a
         recorded failure rather than the end of the run."""
+        self.work_root.mkdir(parents=True, exist_ok=True)
         workdir = Path(tempfile.mkdtemp(prefix=f"tsbench-{name}-", dir=self.work_root))
         try:
             train.to_parquet(workdir / "train.parquet", index=False)
@@ -251,7 +274,7 @@ class BenchmarkRunner:
                         quantile_levels=self.cfg.metrics.quantile_levels,
                         coverage_levels=self.cfg.metrics.coverage_levels)
         for col in ("repeat", "seed", "config_hash", "run_name", "tuning_trials",
-                    "family", "covariates"):
+                    "family", "covariates", "result_key", "git_commit"):
             rows[col] = common[col]
         return rows
 
@@ -305,29 +328,50 @@ class BenchmarkRunner:
 
     # -- checkpointing ----------------------------------------------------
 
-    def _checkpoint_paths(self, model: str, fold: int, use_covariates: bool) -> tuple:
-        stem = f"{model}__fold{fold}" + ("__cov" if use_covariates else "")
-        return (self.checkpoint_dir / f"{stem}__metrics.parquet",
-                self.checkpoint_dir / f"{stem}__timings.parquet")
+    def _checkpoint_paths(self, model: str, key: str, fold: int, use_covariates: bool) -> tuple:
+        stem = f"fold{fold}" + ("__cov" if use_covariates else "")
+        folder = self.checkpoint_root / model / key
+        return folder / f"{stem}__metrics.parquet", folder / f"{stem}__timings.parquet"
 
-    def _save_checkpoint(self, model, fold, use_covariates, metrics, timings) -> None:
-        m_path, t_path = self._checkpoint_paths(model, fold, use_covariates)
+    def checkpoint_files(self, model: str) -> list:
+        folder = self.checkpoint_root / model
+        return sorted(folder.rglob("*.parquet")) if folder.exists() else []
+
+    def _save_checkpoint(self, model, key, fold, use_covariates, metrics, timings) -> None:
+        m_path, t_path = self._checkpoint_paths(model, key, fold, use_covariates)
+        m_path.parent.mkdir(parents=True, exist_ok=True)
+        # Metrics first, timings last: the timings file is the "done" marker,
+        # and each is written to a temp name and renamed so a kill mid-write
+        # can never leave a half-file under the real name.
         if len(metrics):
-            metrics.to_parquet(m_path, index=False)
-        timings.to_parquet(t_path, index=False)
+            _atomic_parquet(metrics, m_path)
+        _atomic_parquet(timings, t_path)
 
-    def _load_checkpoint(self, model, fold, use_covariates=False):
-        m_path, t_path = self._checkpoint_paths(model, fold, use_covariates)
+    def _load_checkpoint(self, model, key, fold, use_covariates=False):
+        m_path, t_path = self._checkpoint_paths(model, key, fold, use_covariates)
         if not t_path.exists():
             return None
-        metrics = pd.read_parquet(m_path) if m_path.exists() else pd.DataFrame()
-        timings = pd.read_parquet(t_path)
+        try:
+            timings = pd.read_parquet(t_path)
+            metrics = pd.read_parquet(m_path) if m_path.exists() else pd.DataFrame()
+        except Exception:
+            # A corrupt checkpoint is treated as absent, not as a crash.
+            for path in (m_path, t_path):
+                path.unlink(missing_ok=True)
+            return None
+
+        if self.retry_failed and (timings["status"] == "failed").any():
+            for path in (m_path, t_path):
+                path.unlink(missing_ok=True)
+            return None
         return {"metrics": metrics, "timings": timings.assign(resumed=True)}
 
     # -- output -----------------------------------------------------------
 
-    def _metadata(self, panel, splitter, models) -> dict:
+    def _metadata(self, panel, splitter, models, tuned_params=None) -> dict:
+        tuned_params = tuned_params or {}
         return {
+            "progress": self.progress(models, tuned_params),
             "run_name": self.cfg.run.name,
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "config_hash": self.cfg.hash,
@@ -337,7 +381,7 @@ class BenchmarkRunner:
             "execution": self.cfg.run.execution,
             "tuning_trials": self.cfg.tuning.budget_trials,
             "tsbench_version": __version__,
-            "git_commit": _git_commit(),
+            "git_commit": self._git_commit,
             "packages": _package_versions(),
             "hardware": device_info(self.device),
             "python": platform.python_version(),
@@ -361,6 +405,32 @@ class BenchmarkRunner:
             },
             "imputation": getattr(self, "_impute_report", {"method": "linear"}),
         }
+
+    def progress(self, models, tuned_params=None) -> dict:
+        """Per model: how many (fold, arm) checkpoints exist and are clean."""
+        tuned_params = tuned_params or {}
+        folds = self.cfg.protocol.folds
+        out = {}
+        for name in models:
+            key = self.result_key(name, tuned_params.get(name, {}))
+            arms = self._covariate_arms(name) if name in self.registry.names() else [False]
+            complete = failed = 0
+            for arm in arms:
+                for fold in range(folds):
+                    _, t_path = self._checkpoint_paths(name, key, fold, arm)
+                    if not t_path.exists():
+                        continue
+                    try:
+                        status = pd.read_parquet(t_path, columns=["status"])["status"]
+                    except Exception:
+                        continue
+                    if (status == "failed").any():
+                        failed += 1
+                    else:
+                        complete += 1
+            out[name] = {"expected": folds * len(arms), "complete": complete,
+                         "failed": failed, "result_key": key}
+        return out
 
     def _write(self, metrics, timings, metadata) -> dict:
         paths = {
@@ -416,6 +486,48 @@ def assert_frame_reaches_origin(train: pd.DataFrame, origin) -> None:
             f"{len(short)} series end before the origin {pd.Timestamp(origin).date()} "
             f"(earliest {short.min().date()}); they would anchor their forecast on the "
             f"wrong week. Example: {short.index[0]}")
+
+
+def _atomic_parquet(frame: pd.DataFrame, path: Path) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    frame.to_parquet(tmp, index=False)
+    tmp.replace(path)
+
+
+def collect(cfg: Config, models=None, registry=None, tuned_params=None) -> RunResult:
+    """Assemble results from whatever checkpoints exist, running nothing.
+
+    For looking at a run in progress, or rebuilding the aggregate files after
+    a crash without waiting for the remaining models.
+    """
+    runner = BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False,
+                             retry_failed=False)
+    models = list(models or cfg.models.enabled)
+    tuned_params = tuned_params or {}
+
+    metrics, timings = [], []
+    for name in models:
+        key = runner.result_key(name, tuned_params.get(name, {}))
+        arms = runner._covariate_arms(name) if name in runner.registry.names() else [False]
+        for arm in arms:
+            for fold in range(cfg.protocol.folds):
+                done = runner._load_checkpoint(name, key, fold, arm)
+                if done is not None:
+                    metrics.append(done["metrics"])
+                    timings.append(done["timings"])
+
+    metrics, timings = _concat(metrics), _concat(timings)
+    metadata = {
+        "run_name": cfg.run.name,
+        "collected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "config_hash": cfg.hash,
+        "config": cfg.to_dict(),
+        "models": models,
+        "progress": runner.progress(models, tuned_params),
+        "note": "assembled from checkpoints by collect(); no models were run",
+    }
+    paths = runner._write(metrics, timings, metadata)
+    return RunResult(metrics=metrics, timings=timings, metadata=metadata, paths=paths)
 
 
 def _empty_measurement(device: str, train: pd.DataFrame) -> dict:

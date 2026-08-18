@@ -17,6 +17,16 @@ from tsbench.models.base import AdapterError, ModelAdapter
 from tsbench.models.registry import register
 
 
+def preferred_dtype(device: str):
+    """bf16 on GPUs that have it, float32 everywhere else. T4s (sm_75) lack
+    bf16 support and would otherwise fail or silently upcast."""
+    import torch
+
+    if device == "cuda" and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float32
+
+
 class FoundationAdapter(ModelAdapter):
     family = "foundation"
     tunable = False           # zero-shot: the results report a budget of 0
@@ -105,7 +115,7 @@ class Chronos2Adapter(FoundationAdapter):
         pipe = BaseChronosPipeline.from_pretrained(
             self.params.get("checkpoint", self.checkpoint),
             device_map=self._torch_device(),
-            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
+            torch_dtype=preferred_dtype(self.device),
         )
         quantiles, _mean = pipe.predict_quantiles(
             context=[torch.tensor(c, dtype=torch.float32) for c in contexts],
