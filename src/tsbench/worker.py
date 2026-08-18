@@ -56,6 +56,8 @@ def run(workdir: Path) -> int:
         }
 
     result["peak_rss_mb"] = peak_rss_mb()
+    result["checkpoint"] = (getattr(model, "resolved_checkpoint", None)
+                            or getattr(model, "checkpoint", None))
     result["n_params"] = model.n_params
     result["n_series"] = int(train["unique_id"].nunique())
     result["device"] = device

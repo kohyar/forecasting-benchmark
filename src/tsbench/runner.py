@@ -252,6 +252,7 @@ class BenchmarkRunner:
                     "peak_memory_mb": max(result["fit_peak_memory_mb"],
                                           per_h["predict_peak_memory_mb"]),
                     "peak_rss_mb": result.get("peak_rss_mb"),
+                    "checkpoint": result.get("checkpoint"),
                     "n_series": result["n_series"],
                     "n_params": result.get("n_params"),
                     "n_jobs": self.cfg.run.n_jobs,
@@ -317,6 +318,8 @@ class BenchmarkRunner:
                     "n_jobs": self.cfg.run.n_jobs,
                     "worker_modules": None,
                     "peak_rss_mb": peak_rss_mb(),
+                    "checkpoint": (getattr(model, "resolved_checkpoint", None)
+                                   or getattr(model, "checkpoint", None)),
                 })
             except Exception as exc:
                 timings.append({**common, "horizon": h, "status": "failed",

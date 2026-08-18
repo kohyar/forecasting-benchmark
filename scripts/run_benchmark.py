@@ -37,6 +37,8 @@ def main() -> None:
                     help="print checkpoint progress per model and exit")
     ap.add_argument("--strict", action="store_true",
                     help="exit if any requested model is unavailable instead of skipping it")
+    ap.add_argument("--errors", action="store_true",
+                    help="print the recorded traceback tail for each failed model and exit")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--param", action="append", default=[],
                     metavar="MODEL:KEY=VALUE",
@@ -86,6 +88,12 @@ def main() -> None:
     if args.status:
         _print_progress(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False),
                         cfg.models.enabled, cfg.models.params)
+        return
+
+    if args.errors:
+        _print_errors(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False,
+                                      retry_failed=False),
+                      cfg.models.enabled, cfg.models.params)
         return
 
     if args.collect_only:
@@ -142,6 +150,32 @@ def _print_progress(runner, models, params) -> None:
         print(f"  {name:18s} {state}")
 
 
+def _print_errors(runner, models, params, tail_lines: int = 25) -> None:
+    """One recorded traceback per failed model, from the checkpoints on disk."""
+    import pandas as pd
+
+    shown = 0
+    for name in models:
+        for path in runner.checkpoint_files(name):
+            if not path.name.endswith("__timings.parquet"):
+                continue
+            try:
+                t = pd.read_parquet(path)
+            except Exception:
+                continue
+            failed = t[t["status"] == "failed"]
+            if failed.empty:
+                continue
+            row = failed.iloc[0]
+            print(f"{'=' * 78}\n{name}  fold {row['fold']}  stage {row['stage']}\n{row['error']}\n")
+            tb = str(row.get("traceback") or "")
+            print("\n".join(tb.strip().splitlines()[-tail_lines:]))
+            shown += 1
+            break
+    print(f"{'=' * 78}\n{shown} model(s) with recorded failures" if shown
+          else "no recorded failures")
+
+
 def _summarise(result) -> None:
     t = result.timings
     ok, failed = t[t["status"] == "ok"], t[t["status"] == "failed"]
@@ -149,7 +183,8 @@ def _summarise(result) -> None:
     if len(failed):
         print(f"\n{len(failed)} failed (model, fold, horizon) combination(s):")
         for _, row in failed.drop_duplicates(["model", "stage"]).iterrows():
-            print(f"  {row['model']:20s} {row['stage']:8s} {row['error'][:90]}")
+            print(f"  {row['model']:20s} {row['stage']:8s} {row['error'][:200]}")
+        print("  (run with --errors for the recorded tracebacks)")
 
     if len(ok):
         fits = ok[~ok["fit_reused"]].groupby("model")["fit_seconds"].median()

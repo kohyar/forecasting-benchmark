@@ -21,10 +21,12 @@ All ten build steps are implemented and tested.
 | 10. Results aggregation | `stats/aggregate.py` | yes |
 
 The five foundation adapters share a tested base class — context construction,
-the no-op fit, quantile assembly and shape validation all have tests. What is
-unverified is one `_forecast()` method per model, which calls a library whose
-weights are not available here. Expect to fix those five methods on first
-contact with the GPU box; nothing else should need to move.
+the no-op fit, quantile assembly and shape validation all have tests — and each
+`_forecast()` was written against the source of the installed library version
+(chronos-forecasting 2.3.1, timesfm 2.0.2, toto-ts 0.2.0, tabpfn-time-series
+1.2.0, granite-tsfm 0.3.8) and exercised against fakes that return those
+libraries' documented shapes (`test_foundation_plumbing.py`). What remains
+unverified is the run against real weights on the GPU box.
 
 ## Setup
 

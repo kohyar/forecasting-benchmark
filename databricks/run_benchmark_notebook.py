@@ -11,11 +11,12 @@
 # COMMAND ----------
 
 # MAGIC %md ## 1. Install (once per cluster start)
-# MAGIC Four cells. The first pins the torch this environment already has, so no
-# MAGIC later install can downgrade it - pip was seen trying to pull torch 2.8
-# MAGIC while backtracking. Toto is installed separately because it pins
-# MAGIC `datasets==2.17.1` (for its evaluation code, not inference), which
-# MAGIC `tabpfn-time-series` cannot accept.
+# MAGIC The first cell pins the torch this environment already has, so no later
+# MAGIC install can downgrade it - pip was seen trying to pull torch 2.8 while
+# MAGIC backtracking. Toto is installed separately (see its note below).
+# MAGIC **Start from a clean environment**: if this notebook has already run
+# MAGIC installs on this cluster session, detach & re-attach (or restart the
+# MAGIC cluster) first, so nothing left over from an earlier attempt lingers.
 
 # COMMAND ----------
 
@@ -34,18 +35,17 @@ print("pinned", open("/local_disk0/tmp/constraints.txt").read().strip(),
 
 # COMMAND ----------
 
-# Toto without its declared deps, then its runtime deps minus the datasets pin.
-import importlib.metadata as md, re, subprocess, sys
-print("installing into:", sys.executable)
-pip = [sys.executable, "-m", "pip", "install", "-c", "/local_disk0/tmp/constraints.txt"]
-subprocess.run([*pip, "--no-deps", "toto-ts>=0.1"], check=True)
-runtime_deps = [
-    r for r in (md.requires("toto-ts") or [])
-    if ";" not in r                                                    # no extras / markers
-    and re.split(r"[<>=!~\[ ]", r)[0].lower() not in ("datasets", "torch")
-]
-print("toto runtime deps:", runtime_deps)
-subprocess.run([*pip, *runtime_deps], check=True)
+# MAGIC %md
+# MAGIC Toto's package metadata is a lockfile - it pins `numpy==1.26.4`,
+# MAGIC `pandas==2.2.3`, `transformers==4.52.1`, `datasets==2.17.1` and more
+# MAGIC with `==`. Installing those would downgrade the whole environment under
+# MAGIC a torch built for numpy 2, so Toto goes in with `--no-deps` and only the
+# MAGIC libraries its inference path actually imports are added, unpinned.
+
+# COMMAND ----------
+
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt --no-deps "toto-ts>=0.2"
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt einops jaxtyping rotary-embedding-torch "gluonts[torch]" lightning
 
 # COMMAND ----------
 
@@ -85,7 +85,8 @@ def sh(*args):
 import torch
 print("cuda:", torch.cuda.is_available(),
       torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-",
-      "| bf16:", torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+      "| native bf16:", torch.cuda.is_available()
+      and torch.cuda.is_bf16_supported(including_emulation=False))
 print("data:", os.path.exists(f"{VOLUME}/New_Query_2026_06_01_10_17_28.csv"))
 sh("scripts/run_benchmark.py", "--config", CONFIG, "--list-models")
 
@@ -109,6 +110,15 @@ sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
 
 sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
    "--models", "chronos2,timesfm,toto,tabpfn_ts,ttm", "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ### If anything failed above: the recorded tracebacks (runs nothing)
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
+   "--models", "chronos2,timesfm,toto,tabpfn_ts,ttm", "--run-name", "smoke-50", "--errors")
 
 # COMMAND ----------
 
