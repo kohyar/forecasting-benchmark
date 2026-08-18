@@ -11,27 +11,33 @@
 # COMMAND ----------
 
 # MAGIC %md ## 1. Install (once per cluster start)
-# MAGIC The first cell pins the torch this environment already has, so no later
-# MAGIC install can downgrade it - pip was seen trying to pull torch 2.8 while
-# MAGIC backtracking. Toto is installed separately (see its note below).
 # MAGIC **Start from a clean environment**: if this notebook has already run
 # MAGIC installs on this cluster session, detach & re-attach (or restart the
 # MAGIC cluster) first, so nothing left over from an earlier attempt lingers.
+# MAGIC
+# MAGIC **torch is pinned to 2.10.0 on purpose.** DBR 17.3 LTS ML ships torch
+# MAGIC 2.7.0, but the current TTM package (`granite-tsfm 0.3.8`) requires
+# MAGIC `torch>=2.10,<2.11` and `neuralforecast>=3.2` requires `>=2.9.1`; the
+# MAGIC older releases that accept 2.7 lose the TTM variant selection and hard-pin
+# MAGIC transformers. So the runtime torch is replaced with the 2.10.0 CUDA-12.8
+# MAGIC wheel, up front and under a constraint, so nothing later can move it.
+# MAGIC `run_metadata.json` records the version that actually ran.
 
 # COMMAND ----------
 
-import os, torch
+import os
+TORCH = "2.10.0"
 os.makedirs("/local_disk0/tmp", exist_ok=True)
 with open("/local_disk0/tmp/constraints.txt", "w") as fh:
-    fh.write(f"torch=={torch.__version__.split('+')[0]}\n")
-print("pinned", open("/local_disk0/tmp/constraints.txt").read().strip(),
-      "| cuda:", torch.cuda.is_available())
+    fh.write(f"torch=={TORCH}\n")
+print("constraint:", open("/local_disk0/tmp/constraints.txt").read().strip())
 
 # COMMAND ----------
 
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "torch==2.10.0"
 # MAGIC %pip install -c /local_disk0/tmp/constraints.txt --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
 # MAGIC %pip install -c /local_disk0/tmp/constraints.txt "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
-# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2"
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.3.8" "accelerate>=1.6,<2"
 
 # COMMAND ----------
 

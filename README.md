@@ -319,10 +319,15 @@ your DBU rate). Three rules that the notebook encodes:
   (`run.work_dir`) stays on `/local_disk0`, because a Volume is a network mount.
 - **Keep the notebook cell running** — a running command is what stops
   auto-termination; a background process from the web terminal is not.
-- **Do not let pip change torch.** The notebook writes a constraints file
-  pinning whatever torch is present and passes it to every install; pip has
-  been observed backtracking toward an older torch while resolving the
-  foundation packages.
+- **torch is pinned to 2.10.0, deliberately.** DBR 17.3 LTS ML ships 2.7.0,
+  but `granite-tsfm 0.3.8` (TTM) requires `torch>=2.10,<2.11` and
+  `neuralforecast>=3.2` requires `>=2.9.1`; the older releases that accept 2.7
+  lose TTM's variant selection and hard-pin transformers. The notebook installs
+  the 2.10.0 CUDA-12.8 wheel first, under a constraints file passed to every
+  later install, so nothing can move it — pip has been observed backtracking
+  toward an older torch while resolving the foundation packages. The
+  reproducibility statement should say "torch 2.10.0 (pip) on 17.3 LTS ML",
+  which is what `run_metadata.json` records.
 - **Toto is installed without its declared dependencies.** `toto-ts` pins
   `datasets==2.17.1` for its evaluation code, which `tabpfn-time-series`
   cannot accept; inference does not need it, so the notebook installs Toto
