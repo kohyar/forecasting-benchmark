@@ -317,9 +317,14 @@ your DBU rate). Three rules that the notebook encodes:
   (`run.work_dir`) stays on `/local_disk0`, because a Volume is a network mount.
 - **Keep the notebook cell running** — a running command is what stops
   auto-termination; a background process from the web terminal is not.
-- **Do not let pip reinstall torch**; the runtime's CUDA build is the one you
-  want. The notebook installs the package with `--no-deps` and the libraries
-  explicitly.
+- **Do not let pip change torch.** The notebook writes a constraints file
+  pinning whatever torch is present and passes it to every install; pip has
+  been observed backtracking toward an older torch while resolving the
+  foundation packages.
+- **Toto is installed without its declared dependencies.** `toto-ts` pins
+  `datasets==2.17.1` for its evaluation code, which `tabpfn-time-series`
+  cannot accept; inference does not need it, so the notebook installs Toto
+  with `--no-deps` and adds its runtime dependencies by hand.
 
 The T4 has no bf16; `preferred_dtype()` falls Chronos-2 back to float32 there.
 Run order in the notebook: smoke test on two baselines, then the five

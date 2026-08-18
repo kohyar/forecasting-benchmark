@@ -10,14 +10,46 @@
 
 # COMMAND ----------
 
-# MAGIC %md ## 1. Install (once per cluster start; the runtime's CUDA torch is kept)
+# MAGIC %md ## 1. Install (once per cluster start)
+# MAGIC Four cells. The first pins the torch this environment already has, so no
+# MAGIC later install can downgrade it - pip was seen trying to pull torch 2.8
+# MAGIC while backtracking. Toto is installed separately because it pins
+# MAGIC `datasets==2.17.1` (for its evaluation code, not inference), which
+# MAGIC `tabpfn-time-series` cannot accept.
 
 # COMMAND ----------
 
-# MAGIC %pip install --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
-# MAGIC %pip install "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
-# MAGIC %pip install "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2" "toto-ts>=0.1"
-# MAGIC dbutils.library.restartPython()
+import os, torch
+os.makedirs("/local_disk0/tmp", exist_ok=True)
+with open("/local_disk0/tmp/constraints.txt", "w") as fh:
+    fh.write(f"torch=={torch.__version__.split('+')[0]}\n")
+print("pinned", open("/local_disk0/tmp/constraints.txt").read().strip(),
+      "| cuda:", torch.cuda.is_available())
+
+# COMMAND ----------
+
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.2"
+
+# COMMAND ----------
+
+# Toto without its declared deps, then its runtime deps minus the datasets pin.
+import importlib.metadata as md, re, subprocess, sys
+print("installing into:", sys.executable)
+pip = [sys.executable, "-m", "pip", "install", "-c", "/local_disk0/tmp/constraints.txt"]
+subprocess.run([*pip, "--no-deps", "toto-ts>=0.1"], check=True)
+runtime_deps = [
+    r for r in (md.requires("toto-ts") or [])
+    if ";" not in r                                                    # no extras / markers
+    and re.split(r"[<>=!~\[ ]", r)[0].lower() not in ("datasets", "torch")
+]
+print("toto runtime deps:", runtime_deps)
+subprocess.run([*pip, *runtime_deps], check=True)
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
