@@ -183,6 +183,51 @@ sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
 
 # COMMAND ----------
 
+# MAGIC %md ### Diagnostics (run only when something above is puzzling)
+# MAGIC **TabPFN licence** - the env var alone is not enough: the key must
+# MAGIC verify, and the licence for *this model version* (TabPFN v3, repo
+# MAGIC `Prior-Labs/tabpfn_3`) must be accepted on the Licenses tab at
+# MAGIC ux.priorlabs.ai. This prints which of the three is missing.
+
+# COMMAND ----------
+
+import os
+from tabpfn.settings import settings
+from tabpfn.browser_auth import (_get_license_name, check_license_accepted,
+                                 get_cached_token, verify_token)
+tok = get_cached_token()
+print("TABPFN_TOKEN present:", bool(tok), "| length:", len(tok or ""))
+api = settings.tabpfn.auth_api_url
+print("key verifies:", verify_token(tok, api) if tok else "-")
+try:
+    lic = _get_license_name("tabpfn_3")
+    print("licence required for v3:", lic)
+    print("accepted:", check_license_accepted(tok, api, lic) if tok else "-")
+except Exception as exc:
+    print("could not resolve the v3 licence name (HF access?):", exc)
+
+# COMMAND ----------
+
+# MAGIC %md **Toto load time** - 50 s per load is more than 600 MB of weights
+# MAGIC should take. This splits it into imports / snapshot lookup / load.
+
+# COMMAND ----------
+
+import os, time, torch
+t0 = time.perf_counter()
+import toto.model.toto, toto.inference.forecaster, toto.data.util.dataset  # noqa: E401
+print(f"imports        {time.perf_counter() - t0:6.1f}s")
+from huggingface_hub import snapshot_download
+t0 = time.perf_counter()
+d = snapshot_download("Datadog/Toto-Open-Base-1.0", allow_patterns=["*.json", "*.safetensors"])
+print(f"snapshot       {time.perf_counter() - t0:6.1f}s  -> {d}")
+t0 = time.perf_counter()
+m = toto.model.toto.Toto.load_from_checkpoint(d, map_location="cuda", strict=False)
+print(f"load_from_ckpt {time.perf_counter() - t0:6.1f}s")
+print("HF cache:", os.environ.get("HF_HOME"), os.environ.get("HF_HUB_CACHE"))
+
+# COMMAND ----------
+
 # MAGIC %md ## 5. Everything on 50 series - the full roster, one pass, before spending on 1,000
 
 # COMMAND ----------

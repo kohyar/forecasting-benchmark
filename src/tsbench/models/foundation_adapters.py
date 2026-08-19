@@ -39,6 +39,8 @@ class FoundationAdapter(ModelAdapter):
     family = "foundation"
     tunable = False           # zero-shot: the results report a budget of 0
     package = ""
+    #: the modules _load() imports - imported untimed by preload()
+    preload_modules = ()
 
     @classmethod
     def preload(cls):
@@ -48,7 +50,8 @@ class FoundationAdapter(ModelAdapter):
 
         import torch
 
-        importlib.import_module(cls.package)
+        for module in cls.preload_modules or (cls.package,):
+            importlib.import_module(module)
         if torch.cuda.is_available():
             torch.zeros(1, device="cuda")
             torch.cuda.synchronize()
@@ -89,9 +92,21 @@ class FoundationAdapter(ModelAdapter):
         }
         self._max_horizon = max(self.cfg.protocol.horizons)
         self._load()
+        self._warm_up()
 
     def _load(self) -> None:
         """Load weights / build the pipeline. Called once, from fit()."""
+
+    def _warm_up(self) -> None:
+        """One series, one step: pays first-call costs (lazy weight loading,
+        kernel selection, graph capture) inside fit() so predict() measures
+        steady-state inference. Milliseconds of work, not a forecast."""
+        first_id = self._ids[0]
+        ids, self._ids = self._ids, [first_id]
+        try:
+            self._forecast([self._context[first_id]], 1)
+        finally:
+            self._ids = ids
 
     def predict(self, horizon: int) -> pd.DataFrame:
         contexts = [self._context[uid] for uid in self._ids]
@@ -135,6 +150,7 @@ class FoundationAdapter(ModelAdapter):
 class Chronos2Adapter(FoundationAdapter):
     name = "chronos2"
     package = "chronos"
+    preload_modules = ("chronos",)
     checkpoint = "amazon/chronos-2"
 
     def _load(self):
@@ -162,6 +178,7 @@ class Chronos2Adapter(FoundationAdapter):
 class TimesFMAdapter(FoundationAdapter):
     name = "timesfm"
     package = "timesfm"
+    preload_modules = ("timesfm",)
     checkpoint = "google/timesfm-2.5-200m-pytorch"
 
     def _load(self):
@@ -193,6 +210,10 @@ class TimesFMAdapter(FoundationAdapter):
 class TotoAdapter(FoundationAdapter):
     name = "toto"
     package = "toto"
+    # toto/__init__ is nearly empty; the heavy imports (lightning, gluonts,
+    # rotary embeddings) live under these
+    preload_modules = ("toto.model.toto", "toto.inference.forecaster",
+                       "toto.data.util.dataset", "huggingface_hub")
     checkpoint = "Datadog/Toto-Open-Base-1.0"
 
     def _load(self):
@@ -244,6 +265,7 @@ class TotoAdapter(FoundationAdapter):
 class TabPFNTSAdapter(FoundationAdapter):
     name = "tabpfn_ts"
     package = "tabpfn_time_series"
+    preload_modules = ("tabpfn_time_series", "tabpfn")
     checkpoint = "tabpfn-ts (local TabPFN checkpoint chosen by the package)"
 
     def _load(self):
@@ -258,10 +280,8 @@ class TabPFNTSAdapter(FoundationAdapter):
             self.resolved_checkpoint = TABPFN_V3_TS_CHECKPOINT
         except ImportError:
             pass
-        # TabPFN loads its weights lazily on the first prediction; a one-series
-        # warm-up pulls that into fit() so predict() measures inference only.
-        first = next(iter(self._context.values()))
-        self._predict_frame([self._ids[0]], [first], 1)
+        # TabPFN loads its weights lazily on the first prediction; the base
+        # class's one-series warm-up in fit() pulls that out of predict().
 
     def _forecast(self, contexts, horizon):
         pred = self._predict_frame(self._ids, contexts, horizon)
@@ -307,6 +327,7 @@ class TabPFNTSAdapter(FoundationAdapter):
 class TTMAdapter(FoundationAdapter):
     name = "ttm"
     package = "tsfm_public"
+    preload_modules = ("tsfm_public.toolkit.get_model",)
     checkpoint = "ibm-granite/granite-timeseries-ttm-r2"
     # TTM ships fixed context lengths (52/90/180/360/512 in r2.1); 90 is the
     # nearest to the ~104-week context the other zero-shot models see, and

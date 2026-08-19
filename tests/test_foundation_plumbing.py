@@ -92,7 +92,7 @@ def test_chronos2_unpacks_a_list_of_per_series_tensors(monkeypatch, cfg, context
     model = fa.Chronos2Adapter(cfg, device="cpu")
     model.fit(_frame(contexts))
     assert "from_pretrained" in calls, "weights load in fit(), not predict()"
-    assert "inputs" not in calls
+    assert len(calls["inputs"]) == 1, "fit() ends with a one-series warm-up"
     out = _run(model, contexts)
 
     _expect_shape(out)
