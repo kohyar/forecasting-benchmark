@@ -94,14 +94,19 @@ os.makedirs(f"{VOLUME}/results", exist_ok=True)
 os.makedirs("/local_disk0/tmp", exist_ok=True)
 
 # TabPFN needs a one-time licence acceptance and an API key for local
-# inference: register at https://ux.priorlabs.ai, accept the licence, copy the
-# key from /account, store it as a Databricks secret, and name it here. Worker
+# inference (register at https://ux.priorlabs.ai, accept the licence, copy the
+# key from /account). Either set TABPFN_TOKEN as a cluster environment
+# variable (Compute > Advanced > Environment variables; takes effect after a
+# cluster restart) or store it as the secret benchmark/tabpfn_token. Worker
 # processes inherit the environment, so setting it once is enough.
-try:
-    os.environ["TABPFN_TOKEN"] = dbutils.secrets.get(scope="benchmark", key="tabpfn_token")
-    print("TABPFN_TOKEN set from secret benchmark/tabpfn_token")
-except Exception as exc:
-    print("TABPFN_TOKEN not set - tabpfn_ts will fail with a licence error until it is:", exc)
+if os.environ.get("TABPFN_TOKEN"):
+    print("TABPFN_TOKEN present (cluster environment)")
+else:
+    try:
+        os.environ["TABPFN_TOKEN"] = dbutils.secrets.get(scope="benchmark", key="tabpfn_token")
+        print("TABPFN_TOKEN set from secret benchmark/tabpfn_token")
+    except Exception:
+        print("TABPFN_TOKEN not set - tabpfn_ts will fail with a licence error until it is")
 
 # Worker processes must see exactly what this notebook sees: the repo's src
 # and the notebook-scoped site-packages that %pip just installed.
