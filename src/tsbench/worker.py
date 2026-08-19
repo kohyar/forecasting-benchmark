@@ -33,6 +33,7 @@ def run(workdir: Path) -> int:
     set_seeds(spec["seed"])
 
     train = pd.read_parquet(workdir / "train.parquet")
+    adapter_cls.preload()          # imports, CUDA context - outside every timer
     model = adapter_cls(cfg, params=spec["params"], device=device)
 
     with measure(device) as fit_m:

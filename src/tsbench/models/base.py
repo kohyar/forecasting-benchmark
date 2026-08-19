@@ -47,6 +47,11 @@ class ModelAdapter(ABC):
         return False
 
     @classmethod
+    def preload(cls) -> None:
+        """Pay one-off process costs - library imports, CUDA context - before
+        the clock starts. Called once per worker, untimed, ahead of fit()."""
+
+    @classmethod
     def is_available(cls) -> tuple:
         """(available, reason). Adapters whose library is missing report it
         rather than raising at import time."""

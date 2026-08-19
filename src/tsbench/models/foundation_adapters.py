@@ -39,6 +39,19 @@ class FoundationAdapter(ModelAdapter):
     family = "foundation"
     tunable = False           # zero-shot: the results report a budget of 0
     package = ""
+
+    @classmethod
+    def preload(cls):
+        """Import the library and create the device context untimed, so
+        fit_seconds is checkpoint loading and nothing else."""
+        import importlib
+
+        import torch
+
+        importlib.import_module(cls.package)
+        if torch.cuda.is_available():
+            torch.zeros(1, device="cuda")
+            torch.cuda.synchronize()
     checkpoint = ""
     #: how much history the model is shown, in weeks
     default_context = 104
@@ -306,11 +319,11 @@ class TTMAdapter(FoundationAdapter):
         repo = self.params.get("checkpoint", self.checkpoint)
         # get_model picks the pretrained variant whose context/forecast lengths
         # cover the longest horizon; shorter horizons are sliced from it.
-        key = get_model(repo, context_length=self.context_length,
-                        prediction_length=self._max_horizon, return_model_key=True)
+        select = dict(context_length=self.context_length,
+                      prediction_length=self._max_horizon, freq="W")
+        key = get_model(repo, return_model_key=True, **select)
         self.resolved_checkpoint = f"{repo}@{key}"
-        model = get_model(repo, context_length=self.context_length,
-                          prediction_length=self._max_horizon)
+        model = get_model(repo, **select)
         self._model = model.to(self._torch_device()).eval()
 
     def _forecast(self, contexts, horizon):
@@ -323,8 +336,12 @@ class TTMAdapter(FoundationAdapter):
                            for c in contexts])
         batch = torch.tensor(padded, dtype=torch.float32, device=device).unsqueeze(-1)  # (n, T, 1)
 
+        # Frequency-prefix-tuned variants (the "-ft-" checkpoints) require a
+        # frequency token; others ignore it. Weekly is 9 in tsfm's mapping.
+        freq_token = torch.full((batch.shape[0],), _TTM_WEEKLY_TOKEN,
+                                dtype=torch.long, device=device)
         with torch.no_grad():
-            out = model(past_values=batch).prediction_outputs      # (n, fl, 1)
+            out = model(past_values=batch, freq_token=freq_token).prediction_outputs  # (n, fl, 1)
         point = out[:, :horizon, 0].cpu().numpy()
 
         # TTM is a point forecaster; widen it into quantiles with the residual
@@ -333,6 +350,9 @@ class TTMAdapter(FoundationAdapter):
         spread = np.array([np.std(np.diff(c)) if len(c) > 1 else 0.0 for c in contexts])
         z = np.array([_normal_quantile(q) for q in self.quantile_levels])
         return point[:, :, None] + spread[:, None, None] * z[None, None, :]
+
+
+_TTM_WEEKLY_TOKEN = 9   # tsfm_public DEFAULT_FREQUENCY_MAPPING["W"]
 
 
 def _load_toto(toto_cls, repo_or_dir: str, device: str):

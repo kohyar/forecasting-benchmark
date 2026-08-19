@@ -43,6 +43,11 @@ class LightGBMBase(ModelAdapter):
     family = "global"
 
     @classmethod
+    def preload(cls):
+        import lightgbm  # noqa: F401
+        import mlforecast  # noqa: F401
+
+    @classmethod
     def is_available(cls):
         try:
             import lightgbm  # noqa: F401

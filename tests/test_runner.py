@@ -341,3 +341,26 @@ def test_config_model_params_reach_the_adapter(config_dict, panel, reg, tmp_path
         panel, models=["recording"], tuned_params={"recording": {"alpha": 7}})
 
     assert seen["alpha"] == 7
+
+
+def test_preload_runs_before_the_timed_fit(cfg, panel, reg):
+    """Library imports and CUDA context creation belong to the process, not
+    the model; preload() gives adapters a place to pay them untimed."""
+    order = []
+
+    class Preloading(Constant):
+        name = "preloading"
+
+        @classmethod
+        def preload(cls):
+            order.append("preload")
+
+        def fit(self, train_df):
+            order.append("fit")
+            super().fit(train_df)
+
+    reg.register(Preloading)
+    BenchmarkRunner(cfg, registry=reg).run(panel, models=["preloading"])
+
+    assert order[:2] == ["preload", "fit"]
+    assert order.count("preload") == order.count("fit")

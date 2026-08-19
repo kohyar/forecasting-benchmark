@@ -15,6 +15,17 @@ from tsbench.models.registry import register
 _ACCELERATOR = {"cpu": "cpu", "mps": "mps", "cuda": "gpu"}
 
 
+def _warm_torch_device():
+    """Create the CUDA/MPS context now so the first timed fit does not pay it."""
+    import torch
+
+    if torch.cuda.is_available():
+        torch.zeros(1, device="cuda")
+        torch.cuda.synchronize()
+    elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        torch.zeros(1, device="mps")
+
+
 def _quantile_column(alias: str, q: float) -> str:
     """MQLoss names outputs by central level: q=0.1 -> lo-80.0, q=0.9 -> hi-80.0."""
     if abs(q - 0.5) < 1e-9:
@@ -27,6 +38,11 @@ def _quantile_column(alias: str, q: float) -> str:
 class NeuralAdapter(ModelAdapter):
     family = "global"
     horizon_is_fit_time = True
+
+    @classmethod
+    def preload(cls):
+        import neuralforecast  # noqa: F401
+        _warm_torch_device()
 
     #: neuralforecast class name, resolved lazily so the import stays optional
     model_class = ""

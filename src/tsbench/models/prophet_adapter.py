@@ -18,6 +18,10 @@ class ProphetAdapter(ModelAdapter):
     family = "local"
 
     @classmethod
+    def preload(cls):
+        import prophet  # noqa: F401
+
+    @classmethod
     def is_available(cls):
         try:
             from prophet import Prophet  # noqa: F401

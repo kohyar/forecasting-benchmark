@@ -23,6 +23,10 @@ def _level_to_quantiles(level: int) -> tuple:
 class StatsForecastAdapter(ModelAdapter):
     """Shared plumbing. Subclasses supply `_model()` only."""
 
+    @classmethod
+    def preload(cls):
+        import statsforecast  # noqa: F401  (numba JIT caches warm on first import)
+
     def _model(self):
         raise NotImplementedError
 

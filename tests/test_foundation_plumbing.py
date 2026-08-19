@@ -285,8 +285,9 @@ def test_ttm_uses_get_model_and_widens_the_point_forecast(monkeypatch, cfg, cont
         def eval(self):
             return self
 
-        def __call__(self, past_values):
+        def __call__(self, past_values, freq_token=None, **kw):
             calls["past_values"] = past_values
+            calls["freq_token"] = freq_token
             return Out(past_values.shape[0], 16)
 
     def get_model(repo, context_length=None, prediction_length=None, return_model_key=False, **kw):
@@ -306,6 +307,8 @@ def test_ttm_uses_get_model_and_widens_the_point_forecast(monkeypatch, cfg, cont
 
     _expect_shape(out)
     assert calls["past_values"].shape == (N, 90, 1), "padded/trimmed to the model's context"
+    assert calls["freq_token"] is not None and calls["freq_token"].tolist() == [9] * N, \
+        "weekly frequency token for the prefix-tuned variants"
     assert model.resolved_checkpoint.endswith("@90-30-ft-r2.1")
     assert (np.diff(out, axis=2) >= 0).all(), "widened quantiles are ordered"
     np.testing.assert_allclose(out[:, :, 4], np.tile(np.arange(N)[:, None], (1, H)),

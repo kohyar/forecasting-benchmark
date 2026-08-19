@@ -290,6 +290,7 @@ class BenchmarkRunner:
                            denominators, common):
         metrics, timings = [], []
         try:
+            adapter_cls.preload()
             model = adapter_cls(self.cfg, params=params, device=self.device)
             with measure(self.device) as fit_m:
                 model.fit(train)
