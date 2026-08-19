@@ -266,20 +266,30 @@ class TabPFNTSAdapter(FoundationAdapter):
     name = "tabpfn_ts"
     package = "tabpfn_time_series"
     preload_modules = ("tabpfn_time_series", "tabpfn")
-    checkpoint = "tabpfn-ts (local TabPFN checkpoint chosen by the package)"
+    # The TabPFN-v2 regressor: the backbone the TabPFN-TS paper used, and the
+    # only TabPFN release whose weights are public and ungated. The package's
+    # own default is a v3 time-series checkpoint that requires a licence token
+    # (pass checkpoint=None in params to use it, with TABPFN_TOKEN set).
+    checkpoint = "tabpfn-v2-regressor.ckpt"
 
     def _load(self):
         from tabpfn_time_series import TabPFNMode, TabPFNTSPipeline
 
+        checkpoint = self.params.get("checkpoint", self.checkpoint)
+        model_config = {"model_path": checkpoint} if checkpoint else {}
         self._pipeline = TabPFNTSPipeline(
             tabpfn_mode=TabPFNMode.LOCAL,
             max_context_length=int(self.params.get("max_context_length", 4096)),
+            tabpfn_model_config=model_config,
         )
-        try:
-            from tabpfn_time_series.defaults import TABPFN_V3_TS_CHECKPOINT
-            self.resolved_checkpoint = TABPFN_V3_TS_CHECKPOINT
-        except ImportError:
-            pass
+        if checkpoint:
+            self.resolved_checkpoint = checkpoint
+        else:
+            try:
+                from tabpfn_time_series.defaults import TABPFN_V3_TS_CHECKPOINT
+                self.resolved_checkpoint = TABPFN_V3_TS_CHECKPOINT
+            except ImportError:
+                self.resolved_checkpoint = "package default"
         # TabPFN loads its weights lazily on the first prediction; the base
         # class's one-series warm-up in fit() pulls that out of predict().
 

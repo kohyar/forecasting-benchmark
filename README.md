@@ -344,9 +344,12 @@ your DBU rate). Three rules that the notebook encodes:
 - **Toto is loaded without its hub mixin.** Its `_from_pretrained` targets
   huggingface_hub < 1.0; the adapter fetches the snapshot and calls Toto's own
   `load_from_checkpoint(directory)`.
-- **TabPFN needs a licence token.** Register at ux.priorlabs.ai, accept the
-  licence, put the API key in a Databricks secret (`benchmark/tabpfn_token`);
-  the setup cell exports it as `TABPFN_TOKEN` and workers inherit it.
+- **TabPFN-TS runs on the TabPFN-v2 regressor weights** (`tabpfn-v2-regressor.ckpt`,
+  public and ungated on HuggingFace) — the backbone the cited TabPFN-TS paper
+  used. The package's own default is a v3 time-series checkpoint behind a
+  licence gate that needs a verified PriorLabs account and `TABPFN_TOKEN`; pass
+  `--param tabpfn_ts:checkpoint=null` to use it once that works. The checkpoint
+  actually used is recorded on every timing row.
 - **Toto is installed without its declared dependencies.** `toto-ts` pins
   `datasets==2.17.1` for its evaluation code, which `tabpfn-time-series`
   cannot accept; inference does not need it, so the notebook installs Toto

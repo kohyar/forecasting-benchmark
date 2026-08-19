@@ -258,13 +258,46 @@ def test_tabpfn_reindexes_the_item_timestamp_frame_and_reads_string_quantile_col
     _expect_shape(out)
     assert set(calls["context_cols"]) == {"item_id", "timestamp", "target"}
     assert len(calls["future"]) == N * H
-    assert model.resolved_checkpoint == "ckpt-x"
+    assert calls["init"]["tabpfn_model_config"] == {"model_path": "tabpfn-v2-regressor.ckpt"}, \
+        "v2 weights by default: ungated, and the backbone the cited paper used"
+    assert model.resolved_checkpoint == "tabpfn-v2-regressor.ckpt"
     # series i, quantile q -> i + q, in the adapter's own series order
     assert out[1, 0, 0] == pytest.approx(1 + 0.1)
     assert out[2, 3, 8] == pytest.approx(2 + 0.9)
 
 
 # --- TTM -------------------------------------------------------------------
+
+def test_tabpfn_can_be_pointed_at_the_packages_default_checkpoint(monkeypatch, cfg, contexts):
+    """checkpoint=None hands model selection back to the package (the gated
+    v3 time-series checkpoint, which needs TABPFN_TOKEN)."""
+    calls = {}
+
+    class Mode:
+        LOCAL = "local"
+
+    class Pipeline:
+        def __init__(self, **kw):
+            calls["init"] = kw
+
+        def predict_df(self, context_df, future_df=None, prediction_length=None, quantiles=None):
+            rows = future_df.copy()
+            for q in quantiles:
+                rows[str(q)] = 1.0
+            rows["target"] = 1.0
+            return rows.set_index(["item_id", "timestamp"])
+
+    _install(monkeypatch, "tabpfn_time_series",
+             _fake_module("tabpfn_time_series", TabPFNMode=Mode, TabPFNTSPipeline=Pipeline))
+    _install(monkeypatch, "tabpfn_time_series.defaults",
+             _fake_module("tabpfn_time_series.defaults", TABPFN_V3_TS_CHECKPOINT="v3-ts.ckpt"))
+
+    model = fa.TabPFNTSAdapter(cfg, device="cpu", params={"checkpoint": None})
+    _run(model, contexts)
+
+    assert calls["init"]["tabpfn_model_config"] == {}
+    assert model.resolved_checkpoint == "v3-ts.ckpt"
+
 
 def test_ttm_uses_get_model_and_widens_the_point_forecast(monkeypatch, cfg, contexts):
     calls = {}
