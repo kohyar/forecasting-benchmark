@@ -39,6 +39,8 @@ def main() -> None:
                     help="exit if any requested model is unavailable instead of skipping it")
     ap.add_argument("--errors", action="store_true",
                     help="print the recorded traceback tail for each failed model and exit")
+    ap.add_argument("--force", action="store_true",
+                    help="discard existing checkpoints of the requested models and rerun them")
     ap.add_argument("--list-models", action="store_true")
     ap.add_argument("--param", action="append", default=[],
                     metavar="MODEL:KEY=VALUE",
@@ -113,7 +115,8 @@ def main() -> None:
     print(f"panel:  {len(panel):,} rows  {panel['ds'].min().date()} .. {panel['ds'].max().date()}")
 
     runner = BenchmarkRunner(cfg, registry=registry, mlflow_enabled=not args.no_mlflow,
-                             retry_failed=not args.keep_failed)
+                             retry_failed=not args.keep_failed,
+                             force=cfg.models.enabled if args.force else ())
     print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
     print(f"models: {', '.join(cfg.models.enabled)}")
     _print_progress(runner, cfg.models.enabled, cfg.models.params)

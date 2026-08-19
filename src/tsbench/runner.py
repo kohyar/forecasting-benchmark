@@ -52,7 +52,7 @@ class RunResult:
 
 class BenchmarkRunner:
     def __init__(self, cfg: Config, registry=None, mlflow_enabled: bool = True,
-                 retry_failed: bool = True):
+                 retry_failed: bool = True, force=()):
         self.cfg = cfg
         self.registry = registry or registry_module.default()
         self.device = resolve_device(cfg.run.device)
@@ -72,6 +72,9 @@ class BenchmarkRunner:
         # usually means something to fix, and after the fix the model must run
         # again without anyone deleting files by hand.
         self.retry_failed = retry_failed
+        # Models whose existing checkpoints are discarded before running -
+        # for re-validating a model after its adapter changed.
+        self.force = set(force or ())
         self._git_commit = _git_commit()
 
     def result_key(self, model: str, params: dict | None = None) -> str:
@@ -91,6 +94,8 @@ class BenchmarkRunner:
         for name in models:
             params = tuned_params.get(name, {})
             key = self.result_key(name, params)
+            if name in self.force:
+                self._discard_checkpoints(name, key)
             for use_covariates in self._covariate_arms(name):
                 for fold in folds:
                     done = self._load_checkpoint(name, key, fold.fold_id, use_covariates)
@@ -337,6 +342,11 @@ class BenchmarkRunner:
         stem = f"fold{fold}" + ("__cov" if use_covariates else "")
         folder = self.checkpoint_root / model / key
         return folder / f"{stem}__metrics.parquet", folder / f"{stem}__timings.parquet"
+
+    def _discard_checkpoints(self, model: str, key: str) -> None:
+        folder = self.checkpoint_root / model / key
+        if folder.exists():
+            shutil.rmtree(folder)
 
     def checkpoint_files(self, model: str) -> list:
         folder = self.checkpoint_root / model

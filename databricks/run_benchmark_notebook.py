@@ -161,9 +161,11 @@ sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "5",
 # COMMAND ----------
 
 # MAGIC %md ## 4. Foundation adapters on 50 series
-# MAGIC These five are unverified against real weights. A failure is recorded,
-# MAGIC not fatal; fix the adapter, `git pull` in Repos, re-run this cell -
-# MAGIC only the failed ones rerun.
+# MAGIC A failure is recorded, not fatal; fix the adapter, pull in Repos,
+# MAGIC re-run this cell - only the failed ones rerun. After an adapter change
+# MAGIC that should be re-validated even where it previously *succeeded*, add
+# MAGIC `"--force"` to the call once (it discards only these five models'
+# MAGIC checkpoints for this run), then remove it again.
 
 # COMMAND ----------
 

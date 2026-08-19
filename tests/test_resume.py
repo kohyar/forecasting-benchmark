@@ -284,3 +284,15 @@ def test_collect_reports_what_is_missing(cfg, panel, reg):
 def cfg_out(cfg):
     from pathlib import Path
     return Path(cfg.run.output_dir) / cfg.run.name
+
+
+def test_force_discards_completed_checkpoints_for_the_named_models_only(cfg, panel, reg):
+    """After an adapter change, a model that *succeeded* under the old code
+    must be re-runnable without touching anyone else's checkpoints."""
+    BenchmarkRunner(cfg, registry=reg).run(panel, models=["constant", "other"])
+    Constant.fits = []
+
+    BenchmarkRunner(cfg, registry=reg, force=["other"]).run(panel, models=["constant", "other"])
+
+    assert _fits("other") > 0, "forced model reran"
+    assert _fits("constant") == 0, "unforced model resumed"
