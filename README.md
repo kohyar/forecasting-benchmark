@@ -328,6 +328,18 @@ your DBU rate). Three rules that the notebook encodes:
   toward an older torch while resolving the foundation packages. The
   reproducibility statement should say "torch 2.10.0 (pip) on 17.3 LTS ML",
   which is what `run_metadata.json` records.
+- **torchvision moves with torch.** transformers imports torchvision when it
+  is present; the runtime's torchvision is built for torch 2.7, so after the
+  torch upgrade every transformers model dies with `operator torchvision::nms
+  does not exist`, wrapped in a misleading "Could not import PreTrainedModel".
+  The notebook pins `torchvision==0.25.0` next to `torch==2.10.0` and an
+  environment-check cell touches `torchvision.ops.nms` before any run.
+- **Toto is loaded without its hub mixin.** Its `_from_pretrained` targets
+  huggingface_hub < 1.0; the adapter fetches the snapshot and calls Toto's own
+  `load_from_checkpoint(directory)`.
+- **TabPFN needs a licence token.** Register at ux.priorlabs.ai, accept the
+  licence, put the API key in a Databricks secret (`benchmark/tabpfn_token`);
+  the setup cell exports it as `TABPFN_TOKEN` and workers inherit it.
 - **Toto is installed without its declared dependencies.** `toto-ts` pins
   `datasets==2.17.1` for its evaluation code, which `tabpfn-time-series`
   cannot accept; inference does not need it, so the notebook installs Toto

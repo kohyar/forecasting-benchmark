@@ -28,13 +28,16 @@
 import os
 TORCH = "2.10.0"
 os.makedirs("/local_disk0/tmp", exist_ok=True)
+# torchvision must move with torch: the runtime's build is for 2.7, and
+# transformers imports it, so a mismatch surfaces as
+# "operator torchvision::nms does not exist" inside every transformers model.
 with open("/local_disk0/tmp/constraints.txt", "w") as fh:
-    fh.write(f"torch=={TORCH}\n")
+    fh.write(f"torch=={TORCH}\ntorchvision==0.25.0\n")
 print("constraint:", open("/local_disk0/tmp/constraints.txt").read().strip())
 
 # COMMAND ----------
 
-# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "torch==2.10.0"
+# MAGIC %pip install -c /local_disk0/tmp/constraints.txt "torch==2.10.0" "torchvision==0.25.0"
 # MAGIC %pip install -c /local_disk0/tmp/constraints.txt --no-deps -e /Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark
 # MAGIC %pip install -c /local_disk0/tmp/constraints.txt "statsforecast>=2.1" "mlforecast>=1.1" "neuralforecast>=3.2" "prophet>=1.4" "optuna>=4.0" "pandas>=2.2,<3" pyarrow pyyaml scipy matplotlib
 # MAGIC %pip install -c /local_disk0/tmp/constraints.txt "chronos-forecasting>=1.5" "timesfm>=2.0" "tabpfn-time-series>=1.0" "granite-tsfm>=0.3.8" "accelerate>=1.6,<2"
@@ -59,6 +62,27 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# MAGIC %md ### Environment check - fails here rather than an hour into a run
+
+# COMMAND ----------
+
+import importlib, torch, torchvision
+assert torch.__version__.startswith("2.10."), f"torch is {torch.__version__}, expected 2.10.x - re-run cell 1 from a clean env"
+torchvision.ops.nms  # raises if torchvision was built for a different torch
+from transformers import PreTrainedModel  # noqa: F401  (fails on the torchvision mismatch)
+for m in ("statsforecast", "mlforecast", "neuralforecast", "prophet", "optuna",
+          "chronos", "timesfm", "tabpfn_time_series", "tsfm_public", "toto"):
+    importlib.import_module(m)
+import huggingface_hub, transformers, numpy, pandas
+print("torch", torch.__version__, "| torchvision", torchvision.__version__,
+      "| transformers", transformers.__version__, "| huggingface_hub", huggingface_hub.__version__,
+      "| numpy", numpy.__version__, "| pandas", pandas.__version__)
+print("cuda:", torch.cuda.is_available(),
+      torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-")
+print("environment OK")
+
+# COMMAND ----------
+
 import os, subprocess, sys
 
 VOLUME = "/Volumes/forecaster_develop/bronze/benchmark"
@@ -68,6 +92,16 @@ CONFIG = f"{REPO}/configs/databricks-t4.yaml"
 os.chdir(REPO)
 os.makedirs(f"{VOLUME}/results", exist_ok=True)
 os.makedirs("/local_disk0/tmp", exist_ok=True)
+
+# TabPFN needs a one-time licence acceptance and an API key for local
+# inference: register at https://ux.priorlabs.ai, accept the licence, copy the
+# key from /account, store it as a Databricks secret, and name it here. Worker
+# processes inherit the environment, so setting it once is enough.
+try:
+    os.environ["TABPFN_TOKEN"] = dbutils.secrets.get(scope="benchmark", key="tabpfn_token")
+    print("TABPFN_TOKEN set from secret benchmark/tabpfn_token")
+except Exception as exc:
+    print("TABPFN_TOKEN not set - tabpfn_ts will fail with a licence error until it is:", exc)
 
 # Worker processes must see exactly what this notebook sees: the repo's src
 # and the notebook-scoped site-packages that %pip just installed.

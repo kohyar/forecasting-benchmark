@@ -177,8 +177,7 @@ class TotoAdapter(FoundationAdapter):
         from toto.model.toto import Toto
 
         device = self._torch_device()
-        model = Toto.from_pretrained(self.params.get("checkpoint", self.checkpoint))
-        model.to(device).eval()
+        model = _load_toto(Toto, self.params.get("checkpoint", self.checkpoint), device)
         forecaster = TotoForecaster(model.model)
 
         # Each series is its own batch element with a single variate. Stacking
@@ -305,6 +304,26 @@ class TTMAdapter(FoundationAdapter):
         spread = np.array([np.std(np.diff(c)) if len(c) > 1 else 0.0 for c in contexts])
         z = np.array([_normal_quantile(q) for q in self.quantile_levels])
         return point[:, :, None] + spread[:, None, None] * z[None, None, :]
+
+
+def _load_toto(toto_cls, repo_or_dir: str, device: str):
+    """Load Toto without its hub mixin.
+
+    Toto's `_from_pretrained` was written for huggingface_hub < 1.0 and
+    requires keyword arguments hub 1.x no longer passes. Its own
+    `load_from_checkpoint(directory)` reads config.json and the safetensors
+    file itself, so fetch the snapshot and hand it the directory.
+    """
+    import os
+
+    if os.path.isdir(repo_or_dir):
+        local_dir = repo_or_dir
+    else:
+        from huggingface_hub import snapshot_download
+
+        local_dir = snapshot_download(repo_or_dir, allow_patterns=["*.json", "*.safetensors"])
+    model = toto_cls.load_from_checkpoint(local_dir, map_location=device, strict=False)
+    return model.to(device).eval()
 
 
 def _normal_quantile(q: float) -> float:

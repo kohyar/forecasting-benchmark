@@ -128,8 +128,13 @@ def test_toto_puts_each_series_in_the_batch_not_the_variate_axis(monkeypatch, cf
         model = Backbone()
 
         @classmethod
-        def from_pretrained(cls, name):
+        def load_from_checkpoint(cls, path, map_location="cpu", strict=True, **kw):
+            calls["checkpoint_dir"] = path
             return cls()
+
+        @classmethod
+        def from_pretrained(cls, *a, **kw):
+            raise TypeError("hub mixin path must not be used")
 
         def to(self, device):
             return self
@@ -159,6 +164,9 @@ def test_toto_puts_each_series_in_the_batch_not_the_variate_axis(monkeypatch, cf
             self.__dict__.update(kw)
             self.series = kw["series"]
 
+    _install(monkeypatch, "huggingface_hub",
+             _fake_module("huggingface_hub",
+                          snapshot_download=lambda repo, **kw: f"/fake/snapshots/{repo}"))
     _install(monkeypatch, "toto", _fake_module("toto"))
     _install(monkeypatch, "toto.model", _fake_module("toto.model"))
     _install(monkeypatch, "toto.model.toto", _fake_module("toto.model.toto", Toto=Toto))
@@ -180,6 +188,7 @@ def test_toto_puts_each_series_in_the_batch_not_the_variate_axis(monkeypatch, cf
     assert calls["num_samples"] % calls["samples_per_batch"] == 0
     assert (out[1] == 1.0).all(), "series order preserved"
     assert isinstance(calls["backbone"], Backbone), "forecaster wraps model.model"
+    assert calls["checkpoint_dir"] == "/fake/snapshots/Datadog/Toto-Open-Base-1.0"
 
 
 # --- TabPFN-TS ------------------------------------------------------------
