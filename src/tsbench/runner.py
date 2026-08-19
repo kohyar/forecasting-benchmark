@@ -105,6 +105,7 @@ class BenchmarkRunner:
                     self._save_checkpoint(name, key, fold.fold_id, use_covariates, m, t)
                     metrics.append(m)
                     timings.append(t)
+                    _progress(name, fold.fold_id, len(folds), use_covariates, t)
 
             # Flush after every model so partial results are on disk if the
             # run dies or the operator kills it.
@@ -493,6 +494,22 @@ def assert_frame_reaches_origin(train: pd.DataFrame, origin) -> None:
             f"{len(short)} series end before the origin {pd.Timestamp(origin).date()} "
             f"(earliest {short.min().date()}); they would anchor their forecast on the "
             f"wrong week. Example: {short.index[0]}")
+
+
+def _progress(name, fold_id, n_folds, use_covariates, timings) -> None:
+    """One line per completed (model, fold), flushed so long runs are not silent."""
+    ok = timings[timings["status"] == "ok"] if len(timings) else timings
+    failed = int((timings["status"] == "failed").sum()) if len(timings) else 0
+    stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    arm = "+cov" if use_covariates else ""
+    if len(ok):
+        fit = ok.drop_duplicates("fit_key")["fit_seconds"].median()
+        pred = ok["predict_seconds"].median()
+        detail = f"fit {fit:7.1f}s  predict {pred:6.2f}s"
+    else:
+        detail = "no successful units"
+    print(f"[{stamp}] {name:18s}{arm:5s} fold {fold_id + 1}/{n_folds}  {detail}"
+          + (f"  ({failed} failed)" if failed else ""), flush=True)
 
 
 def _atomic_parquet(frame: pd.DataFrame, path: Path) -> None:

@@ -116,8 +116,11 @@ os.environ["PYTHONPATH"] = os.pathsep.join(
 
 
 def sh(*args):
-    """Run a repo script with the notebook's interpreter, streaming output."""
-    proc = subprocess.run([sys.executable, *args], text=True)
+    """Run a repo script with the notebook's interpreter, streaming output
+    line by line (-u: otherwise the child's stdout is block-buffered and only
+    appears when it exits)."""
+    proc = subprocess.run([sys.executable, "-u", *args], text=True,
+                          env={**os.environ, "PYTHONUNBUFFERED": "1"})
     if proc.returncode != 0:
         raise RuntimeError(f"exit {proc.returncode}: {' '.join(args)}")
 
@@ -143,6 +146,17 @@ sh("scripts/run_benchmark.py", "--config", CONFIG, "--list-models")
 
 sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
    "--models", "naive,seasonal_naive", "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ## 3b. Warm the weight cache
+# MAGIC Five series, foundation models only. Its purpose is to pull every
+# MAGIC checkpoint into the local cache so no timed fold includes a download.
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "5",
+   "--models", "chronos2,timesfm,toto,tabpfn_ts,ttm", "--run-name", "warmup", "--no-mlflow")
 
 # COMMAND ----------
 

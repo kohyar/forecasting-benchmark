@@ -50,6 +50,25 @@ def _expect_shape(out):
     assert np.isfinite(out).all()
 
 
+def _frame(contexts):
+    """A training panel whose per-series tails are exactly `contexts`."""
+    parts = []
+    end = pd.Timestamp("2026-03-15")
+    for i, c in enumerate(contexts):
+        ds = pd.date_range(end=end, periods=len(c), freq="7D")
+        parts.append(pd.DataFrame({"unique_id": f"S{i}", "ds": ds, "y": c}))
+    return pd.concat(parts, ignore_index=True)
+
+
+def _run(adapter, contexts, horizon=H):
+    """The real path: fit() loads weights, predict() infers. Returns the
+    (n, h, q) array the base class assembled, via the canonical frame."""
+    adapter.fit(_frame(contexts))
+    pred = adapter.predict(horizon)
+    cols = [f"yhat_q{int(q * 100)}" for q in adapter.quantile_levels]
+    return pred[cols].to_numpy().reshape(N, horizon, Q)
+
+
 # --- Chronos-2 -------------------------------------------------------------
 
 def test_chronos2_unpacks_a_list_of_per_series_tensors(monkeypatch, cfg, contexts):
@@ -71,7 +90,10 @@ def test_chronos2_unpacks_a_list_of_per_series_tensors(monkeypatch, cfg, context
 
     _install(monkeypatch, "chronos", _fake_module("chronos", Chronos2Pipeline=Pipe))
     model = fa.Chronos2Adapter(cfg, device="cpu")
-    out = model._forecast(contexts, H)
+    model.fit(_frame(contexts))
+    assert "from_pretrained" in calls, "weights load in fit(), not predict()"
+    assert "inputs" not in calls
+    out = _run(model, contexts)
 
     _expect_shape(out)
     assert len(calls["inputs"]) == N and calls["inputs"][0].ndim == 1
@@ -107,11 +129,15 @@ def test_timesfm_selects_the_deciles_and_drops_the_mean_head(monkeypatch, cfg, c
 
     _install(monkeypatch, "timesfm",
              _fake_module("timesfm", TimesFM_2p5_200M_torch=Model, ForecastConfig=ForecastConfig))
-    out = fa.TimesFMAdapter(cfg, device="cpu")._forecast(contexts, H)
+    model = fa.TimesFMAdapter(cfg, device="cpu")
+    model.fit(_frame(contexts))
+    assert calls.get("compiled"), "compiled once, in fit()"
+    out = _run(model, contexts)
 
     _expect_shape(out)
     assert calls["from_pretrained"][1]["torch_compile"] is False
     assert calls["config"]["fix_quantile_crossing"] is True
+    assert calls["config"]["max_horizon"] == max(cfg.protocol.horizons), "compiled for the longest horizon"
     assert (out[:, :, 0] == 1.0).all() and (out[:, :, 8] == 9.0).all(), "q10..q90 = heads 1..9"
     assert not (out == 99.0).any(), "the mean head is never used as a quantile"
 
@@ -178,7 +204,10 @@ def test_toto_puts_each_series_in_the_batch_not_the_variate_axis(monkeypatch, cf
     _install(monkeypatch, "toto.data.util.dataset",
              _fake_module("toto.data.util.dataset", MaskedTimeseries=MaskedTimeseries))
 
-    out = fa.TotoAdapter(cfg, device="cpu")._forecast(contexts, H)
+    model = fa.TotoAdapter(cfg, device="cpu")
+    model.fit(_frame(contexts))
+    assert "checkpoint_dir" in calls, "weights load in fit()"
+    out = _run(model, contexts)
 
     _expect_shape(out)
     inp = calls["inputs"]
@@ -205,6 +234,7 @@ def test_tabpfn_reindexes_the_item_timestamp_frame_and_reads_string_quantile_col
             calls["init"] = kw
 
         def predict_df(self, context_df, future_df=None, prediction_length=None, quantiles=None):
+            calls["n_calls"] = calls.get("n_calls", 0) + 1
             calls["context_cols"] = list(context_df.columns)
             calls["future"] = future_df
             # returned scrambled, indexed by (item_id, timestamp), string quantile columns
@@ -220,12 +250,10 @@ def test_tabpfn_reindexes_the_item_timestamp_frame_and_reads_string_quantile_col
              _fake_module("tabpfn_time_series.defaults", TABPFN_V3_TS_CHECKPOINT="ckpt-x"))
 
     model = fa.TabPFNTSAdapter(cfg, device="cpu")
-    model.fit(pd.DataFrame({
-        "unique_id": np.repeat([f"S{i}" for i in range(N)], 60),
-        "ds": np.tile(pd.date_range("2024-01-07", periods=60, freq="7D"), N),
-        "y": np.concatenate([c[:60] for c in contexts]),
-    }))
-    out = model._forecast([c[:60] for c in contexts], H)
+    model.fit(_frame(contexts))
+    assert calls.get("n_calls", 0) == 1 and len(calls["future"]) == 1, \
+        "fit() warms the lazily-loaded weights with one series, one step"
+    out = _run(model, contexts)
 
     _expect_shape(out)
     assert set(calls["context_cols"]) == {"item_id", "timestamp", "target"}
@@ -271,7 +299,10 @@ def test_ttm_uses_get_model_and_widens_the_point_forecast(monkeypatch, cfg, cont
              _fake_module("tsfm_public.toolkit.get_model", get_model=get_model))
 
     model = fa.TTMAdapter(cfg, device="cpu")
-    out = model._forecast(contexts, H)
+    model.fit(_frame(contexts))
+    assert len(calls.get("get_model", [])) == 2, "resolved and loaded in fit()"
+    assert calls["get_model"][0][2] == max(cfg.protocol.horizons), "variant covers the longest horizon"
+    out = _run(model, contexts)
 
     _expect_shape(out)
     assert calls["past_values"].shape == (N, 90, 1), "padded/trimmed to the model's context"

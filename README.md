@@ -177,7 +177,14 @@ Per (model, fold, horizon, repeat): `fit_seconds`, `predict_seconds`,
 
 Fit and predict are never summed. A fit shared across horizons is recorded once
 under a `fit_key` and flagged `fit_reused`, so cost totals reflect what the run
-actually cost. Neural models set `horizon_is_fit_time`, because the horizon is
+actually cost.
+
+For zero-shot models `fit_seconds` is **checkpoint loading**, not training — the
+adapters load weights in `fit()` (TabPFN additionally runs a one-series warm-up,
+because it loads lazily) so that `predict_seconds` is pure inference. The
+asymmetry the paper reports is therefore "seconds of setup vs minutes-to-hours
+of training", and the inference column is never inflated by disk I/O. The
+notebook runs a 5-series warm-up first so no timed fold includes a download. Neural models set `horizon_is_fit_time`, because the horizon is
 baked into the architecture, and are refitted per horizon.
 
 `measure()` calls `synchronize(device)` before stopping the clock —

@@ -1,9 +1,10 @@
 """Zero-shot foundation models.
 
-fit() is a no-op that captures the context window - these models are not
-trained here, and their tuning budget is 0 by definition. The cost that
-matters for them is inference, which is why fit and predict timings are never
-summed.
+fit() trains nothing: it captures the context window and loads the checkpoint.
+So for these models `fit_seconds` is setup (weight loading, seconds) rather
+than training (minutes to hours), and `predict_seconds` is pure inference -
+the number practitioners care about most, kept free of disk I/O. The tuning
+budget is 0 by definition.
 
 Everything shared - context construction, horizon handling, quantile assembly,
 validation - lives in FoundationAdapter and is covered by tests. Each model
@@ -60,7 +61,8 @@ class FoundationAdapter(ModelAdapter):
         return int(self.params.get("context_length", self.default_context))
 
     def fit(self, train_df: pd.DataFrame) -> None:
-        """No training. Capture the context each series ends on."""
+        """No training. Capture the context each series ends on, then load
+        the checkpoint so predict() measures inference alone."""
         df = train_df[["unique_id", "ds", "y"]].dropna(subset=["y"])
         if df.empty:
             raise AdapterError(f"{self.name}: no observations to build a context from")
@@ -72,6 +74,11 @@ class FoundationAdapter(ModelAdapter):
             uid: g["y"].to_numpy(dtype=float)[-self.context_length:]
             for uid, g in df.groupby("unique_id", sort=True)
         }
+        self._max_horizon = max(self.cfg.protocol.horizons)
+        self._load()
+
+    def _load(self) -> None:
+        """Load weights / build the pipeline. Called once, from fit()."""
 
     def predict(self, horizon: int) -> pd.DataFrame:
         contexts = [self._context[uid] for uid in self._ids]
@@ -117,16 +124,18 @@ class Chronos2Adapter(FoundationAdapter):
     package = "chronos"
     checkpoint = "amazon/chronos-2"
 
-    def _forecast(self, contexts, horizon):
+    def _load(self):
         from chronos import Chronos2Pipeline
 
-        pipe = Chronos2Pipeline.from_pretrained(
+        self._pipe = Chronos2Pipeline.from_pretrained(
             self.params.get("checkpoint", self.checkpoint),
             device_map=self._torch_device(),
             torch_dtype=preferred_dtype(self.device),
         )
+
+    def _forecast(self, contexts, horizon):
         # inputs: one 1-d array per series -> one (n_variates=1, h, q) tensor each
-        quantiles, _mean = pipe.predict_quantiles(
+        quantiles, _mean = self._pipe.predict_quantiles(
             [np.asarray(c, dtype=np.float32) for c in contexts],
             prediction_length=horizon,
             quantile_levels=list(self.quantile_levels),
@@ -142,22 +151,25 @@ class TimesFMAdapter(FoundationAdapter):
     package = "timesfm"
     checkpoint = "google/timesfm-2.5-200m-pytorch"
 
-    def _forecast(self, contexts, horizon):
+    def _load(self):
         import timesfm
 
-        # torch.compile off: it adds minutes of compile latency to the first
-        # call and would land inside the timed region.
-        model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
+        # torch.compile off: minutes of compile latency that would otherwise
+        # land in the first timed call.
+        self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(
             self.params.get("checkpoint", self.checkpoint), torch_compile=False)
-        model.compile(timesfm.ForecastConfig(
+        # Compiled once for the longest horizon; shorter horizons decode less.
+        self._model.compile(timesfm.ForecastConfig(
             max_context=self.context_length,          # rounded up to the patch size internally
-            max_horizon=horizon,                      # rounded up to the output patch internally
+            max_horizon=self._max_horizon,            # rounded up to the output patch internally
             normalize_inputs=True,
             use_continuous_quantile_head=True,
             fix_quantile_crossing=True,
             per_core_batch_size=int(self.params.get("batch_size", 32)),
         ))
-        _point, quantile = model.forecast(horizon=horizon, inputs=list(contexts))
+
+    def _forecast(self, contexts, horizon):
+        _point, quantile = self._model.forecast(horizon=horizon, inputs=list(contexts))
         # (n, horizon, 10): index 0 is the mean, 1..9 are the deciles q10..q90
         quantile = np.asarray(quantile)[:, :horizon, :]
         wanted = [int(round(q * 10)) for q in self.quantile_levels]
@@ -170,15 +182,20 @@ class TotoAdapter(FoundationAdapter):
     package = "toto"
     checkpoint = "Datadog/Toto-Open-Base-1.0"
 
-    def _forecast(self, contexts, horizon):
-        import torch
-        from toto.data.util.dataset import MaskedTimeseries
+    def _load(self):
         from toto.inference.forecaster import TotoForecaster
         from toto.model.toto import Toto
 
+        model = _load_toto(Toto, self.params.get("checkpoint", self.checkpoint),
+                           self._torch_device())
+        self._forecaster = TotoForecaster(model.model)
+
+    def _forecast(self, contexts, horizon):
+        import torch
+        from toto.data.util.dataset import MaskedTimeseries
+
         device = self._torch_device()
-        model = _load_toto(Toto, self.params.get("checkpoint", self.checkpoint), device)
-        forecaster = TotoForecaster(model.model)
+        forecaster = self._forecaster
 
         # Each series is its own batch element with a single variate. Stacking
         # them as variates of one input would let unrelated series attend to
@@ -216,22 +233,10 @@ class TabPFNTSAdapter(FoundationAdapter):
     package = "tabpfn_time_series"
     checkpoint = "tabpfn-ts (local TabPFN checkpoint chosen by the package)"
 
-    def _forecast(self, contexts, horizon):
+    def _load(self):
         from tabpfn_time_series import TabPFNMode, TabPFNTSPipeline
 
-        end = self._last
-        step = pd.Timedelta(days=7)
-        context_rows, future_rows = [], []
-        for uid, context in zip(self._ids, contexts):
-            hist = pd.date_range(end=end, periods=len(context), freq="7D")
-            context_rows.append(pd.DataFrame(
-                {"item_id": uid, "timestamp": hist, "target": np.asarray(context, dtype=float)}))
-            future_rows.append(pd.DataFrame(
-                {"item_id": uid, "timestamp": pd.date_range(end + step, periods=horizon, freq="7D")}))
-        context_df = pd.concat(context_rows, ignore_index=True)
-        future_df = pd.concat(future_rows, ignore_index=True)
-
-        pipeline = TabPFNTSPipeline(
+        self._pipeline = TabPFNTSPipeline(
             tabpfn_mode=TabPFNMode.LOCAL,
             max_context_length=int(self.params.get("max_context_length", 4096)),
         )
@@ -240,19 +245,13 @@ class TabPFNTSAdapter(FoundationAdapter):
             self.resolved_checkpoint = TABPFN_V3_TS_CHECKPOINT
         except ImportError:
             pass
-        pred = pipeline.predict_df(context_df, future_df=future_df,
-                                   quantiles=[float(q) for q in self.quantile_levels])
+        # TabPFN loads its weights lazily on the first prediction; a one-series
+        # warm-up pulls that into fit() so predict() measures inference only.
+        first = next(iter(self._context.values()))
+        self._predict_frame([self._ids[0]], [first], 1)
 
-        # Rows come back indexed by (item_id, timestamp); quantile columns are
-        # named by level, as strings in current versions.
-        pred = pred.reset_index()
-        pred["timestamp"] = pd.to_datetime(pred["timestamp"])
-        pred = pred.set_index(["item_id", "timestamp"]).sort_index()
-        wanted = pd.MultiIndex.from_product(
-            [self._ids, pd.date_range(end + step, periods=horizon, freq="7D")],
-            names=["item_id", "timestamp"])
-        pred = pred.reindex(wanted)
-
+    def _forecast(self, contexts, horizon):
+        pred = self._predict_frame(self._ids, contexts, horizon)
         columns = []
         for q in self.quantile_levels:
             for candidate in (str(q), q, f"{q:.1f}", str(float(q))):
@@ -263,6 +262,32 @@ class TabPFNTSAdapter(FoundationAdapter):
                 raise AdapterError(f"tabpfn_ts: no column for quantile {q}; have {list(pred.columns)}")
         return pred[columns].to_numpy(dtype=float).reshape(
             len(self._ids), horizon, len(self.quantile_levels))
+
+    def _predict_frame(self, ids, contexts, horizon):
+        end = self._last
+        step = pd.Timedelta(days=7)
+        context_rows, future_rows = [], []
+        for uid, context in zip(ids, contexts):
+            hist = pd.date_range(end=end, periods=len(context), freq="7D")
+            context_rows.append(pd.DataFrame(
+                {"item_id": uid, "timestamp": hist, "target": np.asarray(context, dtype=float)}))
+            future_rows.append(pd.DataFrame(
+                {"item_id": uid, "timestamp": pd.date_range(end + step, periods=horizon, freq="7D")}))
+        context_df = pd.concat(context_rows, ignore_index=True)
+        future_df = pd.concat(future_rows, ignore_index=True)
+
+        pred = self._pipeline.predict_df(context_df, future_df=future_df,
+                                         quantiles=[float(q) for q in self.quantile_levels])
+
+        # Rows come back indexed by (item_id, timestamp); quantile columns are
+        # named by level, as strings in current versions.
+        pred = pred.reset_index()
+        pred["timestamp"] = pd.to_datetime(pred["timestamp"])
+        pred = pred.set_index(["item_id", "timestamp"]).sort_index()
+        wanted = pd.MultiIndex.from_product(
+            [list(ids), pd.date_range(end + step, periods=horizon, freq="7D")],
+            names=["item_id", "timestamp"])
+        return pred.reindex(wanted)
 
 
 @register
@@ -275,20 +300,24 @@ class TTMAdapter(FoundationAdapter):
     # every eligible series has at least 104 weeks of history.
     default_context = 90
 
-    def _forecast(self, contexts, horizon):
-        import torch
+    def _load(self):
         from tsfm_public.toolkit.get_model import get_model
 
         repo = self.params.get("checkpoint", self.checkpoint)
         # get_model picks the pretrained variant whose context/forecast lengths
-        # cover the request and trims the forecast to `horizon`.
+        # cover the longest horizon; shorter horizons are sliced from it.
         key = get_model(repo, context_length=self.context_length,
-                        prediction_length=horizon, return_model_key=True)
+                        prediction_length=self._max_horizon, return_model_key=True)
         self.resolved_checkpoint = f"{repo}@{key}"
-        model = get_model(repo, context_length=self.context_length, prediction_length=horizon)
-        device = self._torch_device()
-        model = model.to(device).eval()
+        model = get_model(repo, context_length=self.context_length,
+                          prediction_length=self._max_horizon)
+        self._model = model.to(self._torch_device()).eval()
 
+    def _forecast(self, contexts, horizon):
+        import torch
+
+        model = self._model
+        device = self._torch_device()
         width = int(model.config.context_length)
         padded = np.stack([np.pad(c, (max(width - len(c), 0), 0), mode="edge")[-width:]
                            for c in contexts])
