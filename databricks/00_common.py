@@ -1,9 +1,8 @@
 # Databricks notebook source
 # MAGIC %md # Common setup (no installs here)
-# MAGIC Included by every runner notebook via `%run ./00_common`. Paths, the
-# MAGIC worker environment, and the `sh()` helper. Installs live in
-# MAGIC `01_install` because `%pip` + `restartPython()` cannot run inside a
-# MAGIC `%run` include.
+# MAGIC Included by every runner notebook via `%run ./00_common`. Wires the
+# MAGIC shared library directory that `01_install` populated onto PYTHONPATH -
+# MAGIC `%pip` would be notebook-scoped and invisible to the other notebooks.
 
 # COMMAND ----------
 
@@ -12,10 +11,24 @@ import os, subprocess, sys
 VOLUME = "/Volumes/forecaster_develop/bronze/benchmark"
 REPO = "/Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark"
 CONFIG = f"{REPO}/configs/databricks-t4.yaml"
+LIBS = "/local_disk0/tsbench-libs"
+
+if not os.path.isdir(os.path.join(LIBS, "statsforecast")):
+    raise RuntimeError(
+        f"{LIBS} is missing or incomplete - run the 01_install notebook once "
+        "on this cluster (it installs after every cluster start).")
 
 os.chdir(REPO)
 os.makedirs(f"{VOLUME}/results", exist_ok=True)
 os.makedirs("/local_disk0/tmp", exist_ok=True)
+
+# Workers and any notebook-side imports resolve the shared libs first, then
+# the repo's src; the cluster runtime's own site-packages stay behind them.
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    [f"{REPO}/src", LIBS, os.environ.get("PYTHONPATH", "")]).strip(os.pathsep)
+for path in (LIBS, f"{REPO}/src"):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 # Optional: only needed to run TabPFN's gated v3 checkpoint instead of the
 # default (ungated) v2 weights.
@@ -28,16 +41,10 @@ else:
     except Exception:
         print("TABPFN_TOKEN not set (fine: tabpfn_ts defaults to the ungated v2 weights)")
 
-# Worker processes must see exactly what this notebook sees: the repo's src
-# and the notebook-scoped site-packages that %pip installed.
-extra = [p for p in sys.path if p and ("pythonEnv" in p or p.endswith("site-packages"))]
-os.environ["PYTHONPATH"] = os.pathsep.join(
-    [f"{REPO}/src", *extra, os.environ.get("PYTHONPATH", "")]).strip(os.pathsep)
-
 
 def sh(*args):
-    """Run a repo script with the notebook's interpreter, streaming output
-    line by line (-u: otherwise the child's stdout is block-buffered)."""
+    """Run a repo script with this interpreter, streaming output line by line
+    (-u: otherwise the child's stdout is block-buffered)."""
     proc = subprocess.run([sys.executable, "-u", *args], text=True,
                           env={**os.environ, "PYTHONUNBUFFERED": "1"})
     if proc.returncode != 0:

@@ -328,8 +328,8 @@ cluster-side setup for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU)
 
 | Notebook | Purpose |
 |---|---|
-| `01_install` | pins torch/torchvision, installs everything, environment check — once per cluster start |
-| `00_common` | paths + `sh()` helper, included by the others via `%run` |
+| `01_install` | installs everything into a **shared** `/local_disk0/tsbench-libs` (pip `--target`), environment check — once per cluster start. `%pip` is notebook-scoped on Databricks and would be invisible to the other notebooks, so installs must not use it |
+| `00_common` | puts the shared libs + repo src on PYTHONPATH, paths, `sh()` — included by the others via `%run`; fails fast with "run 01_install" if the libs are missing |
 | `10_run_local` | baselines + local tier (smoke, real run, status, errors) |
 | `20_run_global` | global tier |
 | `30_run_foundation` | foundation tier (incl. weight-cache warm-up) |
