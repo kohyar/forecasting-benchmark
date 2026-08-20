@@ -79,6 +79,20 @@ class Registry:
         return [self.status(n) for n in self.names()]
 
 
+def family_members(registry: "Registry", enabled, families) -> list:
+    """The enabled models belonging to the given families, in enabled order.
+
+    Enabled names the registry does not know are skipped here (the runner's
+    own name check still catches typos when the model is actually requested).
+    """
+    unknown = [f for f in families if f not in FAMILIES]
+    if unknown:
+        raise ValueError(f"unknown family(ies) {unknown}; valid: {list(FAMILIES)}")
+    wanted = set(families)
+    return [name for name in enabled
+            if name in registry.names() and registry.get(name).family in wanted]
+
+
 def partition_available(registry: "Registry", names) -> tuple:
     """Split requested models into runnable and (skipped, reason).
 

@@ -228,20 +228,75 @@ print("HF cache:", os.environ.get("HF_HOME"), os.environ.get("HF_HUB_CACHE"))
 
 # COMMAND ----------
 
-# MAGIC %md ## 5. Everything on 50 series - the full roster, one pass, before spending on 1,000
+# MAGIC %md ## 5. Full roster on 50 series, one tier at a time
+# MAGIC Same run name, shared checkpoints: finish a tier, look at its numbers,
+# MAGIC move on. A failure stays inside its tier; fix, pull, re-run that cell -
+# MAGIC only failed units rerun. 5c resumes the models already done above.
 
 # COMMAND ----------
 
-sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
+# MAGIC %md ### 5a. Baselines + local (CPU tier - AutoARIMA is the long pole)
+
+# COMMAND ----------
+
+sh("scripts/run_local.py", "--config", CONFIG, "--n-series", "50",
    "--run-name", "smoke-50", "--no-mlflow")
 
 # COMMAND ----------
 
-# MAGIC %md ## 6. Full run. Re-run this cell as many times as needed - it resumes.
+# MAGIC %md ### 5b. Global models (LightGBM-global + the neural trainers)
 
 # COMMAND ----------
 
-sh("scripts/run_benchmark.py", "--config", CONFIG)
+sh("scripts/run_global.py", "--config", CONFIG, "--n-series", "50",
+   "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ### 5c. Foundation models (already done above - resumes unless --force)
+
+# COMMAND ----------
+
+sh("scripts/run_foundation.py", "--config", CONFIG, "--n-series", "50",
+   "--run-name", "smoke-50", "--no-mlflow")
+
+# COMMAND ----------
+
+# MAGIC %md ### Assemble the full 50-series table from all tiers (runs nothing)
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--n-series", "50",
+   "--run-name", "smoke-50", "--collect-only")
+
+# COMMAND ----------
+
+# MAGIC %md ## 6. The real run - 1,000 series, tier by tier
+# MAGIC Re-run any cell as often as needed; each resumes. Order is cheapest-
+# MAGIC insight-first. TabPFN-TS dominates wall clock (~15h alone): to overlap
+# MAGIC it, run 6c on a second identical cluster with
+# MAGIC `"--models", "tabpfn_ts"` here and the rest there - same Volume, no
+# MAGIC checkpoint collisions, then Assemble below.
+
+# COMMAND ----------
+
+sh("scripts/run_local.py", "--config", CONFIG)
+
+# COMMAND ----------
+
+sh("scripts/run_global.py", "--config", CONFIG)
+
+# COMMAND ----------
+
+sh("scripts/run_foundation.py", "--config", CONFIG)
+
+# COMMAND ----------
+
+# MAGIC %md ### Assemble the full table from every tier (runs nothing)
+
+# COMMAND ----------
+
+sh("scripts/run_benchmark.py", "--config", CONFIG, "--collect-only")
 
 # COMMAND ----------
 

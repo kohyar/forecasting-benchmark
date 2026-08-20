@@ -223,3 +223,46 @@ def test_unknown_names_are_reported_separately(scratch):
 
     with pytest.raises(KeyError, match="nope"):
         partition_available(scratch, ["dummy", "nope"])
+
+
+def test_family_members_selects_from_the_enabled_list_in_order(scratch):
+    from tsbench.models.registry import family_members
+
+    class Local1(Dummy):
+        name = "local1"
+        family = "local"
+
+    class Local2(Dummy):
+        name = "local2"
+        family = "local"
+
+    class Global1(Dummy):
+        name = "global1"
+        family = "global"
+
+    for a in (Dummy, Local1, Local2, Global1):
+        scratch.register(a)
+
+    enabled = ["global1", "local2", "dummy", "local1"]
+
+    assert family_members(scratch, enabled, ["local"]) == ["local2", "local1"]
+    assert family_members(scratch, enabled, ["baseline", "local"]) == ["local2", "dummy", "local1"]
+    assert family_members(scratch, enabled, ["global"]) == ["global1"]
+
+
+def test_family_members_rejects_an_unknown_family(scratch):
+    from tsbench.models.registry import family_members
+
+    scratch.register(Dummy)
+
+    with pytest.raises(ValueError, match="hybrid"):
+        family_members(scratch, ["dummy"], ["hybrid"])
+
+
+def test_family_members_ignores_enabled_names_not_registered(scratch):
+    """The enabled list may name models this build does not know."""
+    from tsbench.models.registry import family_members
+
+    scratch.register(Dummy)
+
+    assert family_members(scratch, ["dummy", "mystery"], ["baseline"]) == ["dummy"]

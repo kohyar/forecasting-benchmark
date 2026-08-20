@@ -14,7 +14,7 @@ import yaml
 from tsbench.config import Config
 from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
-from tsbench.models.registry import partition_available
+from tsbench.models.registry import family_members, partition_available
 from tsbench.pipeline import ensure_sample
 from tsbench.runner import BenchmarkRunner, collect
 from tsbench.tuning import tune_all
@@ -24,6 +24,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/default.yaml")
     ap.add_argument("--models", help="comma-separated; defaults to models.enabled")
+    ap.add_argument("--family", help="run only these families from models.enabled, "
+                                     "comma-separated: baseline,local,global,foundation")
     ap.add_argument("--n-series", type=int, help="override sampling.n_series")
     ap.add_argument("--run-name", help="override run.name")
     ap.add_argument("--no-mlflow", action="store_true")
@@ -57,6 +59,8 @@ def main() -> None:
         raw["run"]["name"] = args.run_name or f"{raw['run']['name']}-n{args.n_series}"
     elif args.run_name:
         raw["run"]["name"] = args.run_name
+    if args.models and args.family:
+        sys.exit("--models and --family are mutually exclusive")
     if args.models:
         raw["models"]["enabled"] = [m.strip() for m in args.models.split(",")]
     for override in args.param:
@@ -64,8 +68,17 @@ def main() -> None:
         key, _, value = assignment.partition("=")
         raw["models"].setdefault("params", {}).setdefault(model, {})[key] = yaml.safe_load(value)
 
-    cfg = Config.from_dict(raw)
     registry = registry_module.default()
+    if args.family:
+        families = [f.strip() for f in args.family.split(",")]
+        try:
+            selected = family_members(registry, raw["models"]["enabled"], families)
+        except ValueError as exc:
+            sys.exit(str(exc))
+        if not selected:
+            sys.exit(f"no enabled models in family(ies) {families}")
+        raw["models"]["enabled"] = selected
+    cfg = Config.from_dict(raw)
 
     if args.list_models:
         for status in registry.report():

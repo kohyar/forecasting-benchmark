@@ -305,10 +305,17 @@ treated as absent, not as a crash. **Aggregate results are refreshed after
 every model**, so `metrics.parquet` on disk is never more than one model behind.
 
 ```bash
-python scripts/run_benchmark.py --config configs/databricks-t4.yaml --status        # progress, runs nothing
-python scripts/run_benchmark.py --config configs/databricks-t4.yaml --collect-only  # assemble partial results
-python scripts/run_benchmark.py --config configs/databricks-t4.yaml                 # run / resume
+python scripts/run_local.py      --config configs/databricks-t4.yaml   # baselines + local tier
+python scripts/run_global.py     --config configs/databricks-t4.yaml   # global tier
+python scripts/run_foundation.py --config configs/databricks-t4.yaml   # foundation tier
+python scripts/run_benchmark.py  --config ... --status                 # progress, runs nothing
+python scripts/run_benchmark.py  --config ... --collect-only           # assemble all tiers
 ```
+
+The three tier runners are aliases for `run_benchmark.py --family ...` and
+accept all its flags. Checkpoints are shared, so tiers can be completed in any
+order — or on different clusters in parallel — and `--collect-only` assembles
+the combined results.
 
 The frozen sample is validated by `sample_key` (data identity + sampling +
 protocol + seed), so it survives a move between machines and rebuilds only when
