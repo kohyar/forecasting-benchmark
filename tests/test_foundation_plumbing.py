@@ -222,6 +222,77 @@ def test_toto_puts_each_series_in_the_batch_not_the_variate_axis(monkeypatch, cf
 
 # --- TabPFN-TS ------------------------------------------------------------
 
+def test_toto_chunks_large_batches_and_preserves_series_order(monkeypatch, cfg):
+    """1,000 series in one batch OOMs a 16GB GPU; the adapter must chunk the
+    batch dimension and stitch results back in order."""
+    calls = {"batches": []}
+
+    class Backbone:
+        pass
+
+    class Toto:
+        model = Backbone()
+
+        @classmethod
+        def load_from_checkpoint(cls, path, map_location="cpu", strict=True, **kw):
+            return cls()
+
+        def to(self, device):
+            return self
+
+        def eval(self):
+            return self
+
+    class Forecast:
+        def __init__(self, samples):
+            self.samples = samples
+
+    class Forecaster:
+        def __init__(self, backbone):
+            pass
+
+        def forecast(self, inputs, prediction_length, num_samples, samples_per_batch, **kw):
+            b = inputs.series.shape[0]
+            calls["batches"].append(b)
+            # encode the *value* of each series (its last context point) into
+            # the samples, so stitching order is verifiable end to end
+            last = inputs.series[:, :, -1].view(b, 1, 1, 1)
+            return Forecast(last + torch.zeros(b, 1, prediction_length, num_samples))
+
+    class MaskedTimeseries:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+            self.series = kw["series"]
+
+    _install(monkeypatch, "huggingface_hub",
+             _fake_module("huggingface_hub", snapshot_download=lambda repo, **kw: "/fake"))
+    _install(monkeypatch, "toto", _fake_module("toto"))
+    _install(monkeypatch, "toto.model", _fake_module("toto.model"))
+    _install(monkeypatch, "toto.model.toto", _fake_module("toto.model.toto", Toto=Toto))
+    _install(monkeypatch, "toto.inference", _fake_module("toto.inference"))
+    _install(monkeypatch, "toto.inference.forecaster",
+             _fake_module("toto.inference.forecaster", TotoForecaster=Forecaster))
+    _install(monkeypatch, "toto.data", _fake_module("toto.data"))
+    _install(monkeypatch, "toto.data.util", _fake_module("toto.data.util"))
+    _install(monkeypatch, "toto.data.util.dataset",
+             _fake_module("toto.data.util.dataset", MaskedTimeseries=MaskedTimeseries))
+
+    n = 25
+    contexts = [np.full(60, float(i)) for i in range(n)]
+    model = fa.TotoAdapter(cfg, device="cpu", params={"batch_size": 10})
+    model.fit(pd.concat(
+        [pd.DataFrame({"unique_id": f"S{i:03d}",
+                       "ds": pd.date_range(end="2026-03-15", periods=60, freq="7D"),
+                       "y": c}) for i, c in enumerate(contexts)], ignore_index=True))
+    pred = model.predict(H)
+
+    # warm-up batch of 1, then 10 + 10 + 5
+    assert calls["batches"] == [1, 10, 10, 5]
+    med = pred.set_index(["unique_id", "ds"])["yhat_q50"]
+    for i in range(n):
+        assert (med.loc[f"S{i:03d}"] == float(i)).all(), "series order preserved across chunks"
+
+
 def test_tabpfn_reindexes_the_item_timestamp_frame_and_reads_string_quantile_columns(
         monkeypatch, cfg, contexts):
     calls = {}

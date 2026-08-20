@@ -225,6 +225,15 @@ class TotoAdapter(FoundationAdapter):
         self._forecaster = TotoForecaster(model.model)
 
     def _forecast(self, contexts, horizon):
+        # The sample batch compounds with the series batch (effective batch =
+        # n_series x samples_per_batch), so series go through in chunks - a
+        # 16GB GPU cannot hold 1,000 series x 32 samples at once.
+        chunk = max(int(self.params.get("batch_size", 64)), 1)
+        parts = [self._forecast_chunk(contexts[i:i + chunk], horizon)
+                 for i in range(0, len(contexts), chunk)]
+        return np.concatenate(parts, axis=0)
+
+    def _forecast_chunk(self, contexts, horizon):
         import torch
         from toto.data.util.dataset import MaskedTimeseries
 
