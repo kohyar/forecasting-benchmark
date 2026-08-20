@@ -323,8 +323,21 @@ something that could change eligibility changes.
 
 ## Databricks
 
-`configs/databricks-t4.yaml` and `databricks/run_benchmark_notebook.py` are the
-cluster-side pair for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU).
+`configs/databricks-t4.yaml` plus the `databricks/` notebooks are the
+cluster-side setup for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU):
+
+| Notebook | Purpose |
+|---|---|
+| `01_install` | pins torch/torchvision, installs everything, environment check — once per cluster start |
+| `00_common` | paths + `sh()` helper, included by the others via `%run` |
+| `10_run_local` | baselines + local tier (smoke, real run, status, errors) |
+| `20_run_global` | global tier |
+| `30_run_foundation` | foundation tier (incl. weight-cache warm-up) |
+| `40_assemble` | combine all tiers' checkpoints, statistics, CD diagrams |
+
+Tiers share checkpoints, so notebooks run in any order, independently, or on
+two clusters in parallel (e.g. `30` on a second cluster while `10`/`20` run on
+the first).
 Fill in the Volume path and the `cost.usd_per_hour` (VM rate + 1.5 DBU/h ×
 your DBU rate). Three rules that the notebook encodes:
 
