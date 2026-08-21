@@ -296,3 +296,85 @@ def test_force_discards_completed_checkpoints_for_the_named_models_only(cfg, pan
 
     assert _fits("other") > 0, "forced model reran"
     assert _fits("constant") == 0, "unforced model resumed"
+
+
+# --- provenance: a checkpoint outlives the code that produced it -------------
+#
+# result_key covers the config, not the code, so an adapter rewrite silently
+# leaves its old checkpoints valid and collect() will merge measurements from
+# two builds into one table. Resume must keep working - but it has to say so.
+
+OLD = "a" * 40
+NEW = "b" * 40
+
+
+def _run_at(commit, cfg, panel, reg, models):
+    runner = BenchmarkRunner(cfg, registry=reg)
+    runner._git_commit = commit
+    runner.run(panel, models=models)
+    return runner
+
+
+def test_progress_names_the_commit_each_checkpoint_was_built_at(cfg, panel, reg):
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+
+    later = BenchmarkRunner(cfg, registry=reg)
+    later._git_commit = NEW
+    progress = later.progress(["constant"])
+
+    assert progress["constant"]["complete"] == 2, "the checkpoint still resumes"
+    assert progress["constant"]["commits"] == [OLD]
+    assert progress["constant"]["stale"] is True
+
+
+def test_progress_does_not_flag_checkpoints_built_at_head(cfg, panel, reg):
+    _run_at(NEW, cfg, panel, reg, ["constant"])
+
+    later = BenchmarkRunner(cfg, registry=reg)
+    later._git_commit = NEW
+
+    assert later.progress(["constant"])["constant"]["stale"] is False
+
+
+def test_progress_flags_only_the_models_built_by_other_code(cfg, panel, reg):
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+    _run_at(NEW, cfg, panel, reg, ["other"])
+
+    later = BenchmarkRunner(cfg, registry=reg)
+    later._git_commit = NEW
+    progress = later.progress(["constant", "other"])
+
+    assert progress["constant"]["stale"] is True
+    assert progress["other"]["stale"] is False
+
+
+def test_collect_warns_when_a_table_spans_code_versions(cfg, panel, reg, capsys, monkeypatch):
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+    _run_at(NEW, cfg, panel, reg, ["other"])
+    monkeypatch.setattr("tsbench.runner._git_commit", lambda: NEW)
+
+    result = collect(cfg, models=["constant", "other"], registry=reg)
+    out = capsys.readouterr().out
+
+    assert "constant" in out and OLD[:8] in out, "the stale model is named"
+    assert "--force" in out, "the fix is spelled out"
+    assert result.metadata["progress"]["constant"]["stale"] is True
+    assert result.metadata["progress"]["other"]["stale"] is False
+
+
+def test_a_checkpoint_without_a_commit_column_still_counts_as_complete(cfg, panel, reg):
+    """Checkpoints predate the provenance column; reading it must not make
+    older work look unfinished."""
+    import pandas as pd
+
+    runner = _run_at(OLD, cfg, panel, reg, ["constant"])
+    for path in runner.checkpoint_files("constant"):
+        if path.name.endswith("__timings.parquet"):
+            t = pd.read_parquet(path).drop(columns=["git_commit"])
+            t.to_parquet(path, index=False)
+
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant"])
+
+    assert progress["constant"]["complete"] == 2
+    assert progress["constant"]["commits"] == []
+    assert progress["constant"]["stale"] is False

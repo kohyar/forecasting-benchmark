@@ -16,7 +16,7 @@ from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
 from tsbench.models.registry import family_members, partition_available
 from tsbench.pipeline import ensure_sample
-from tsbench.runner import BenchmarkRunner, collect
+from tsbench.runner import BenchmarkRunner, collect, warn_if_stale
 from tsbench.tuning import tune_all
 
 
@@ -163,7 +163,12 @@ def _print_progress(runner, models, params) -> None:
         state = ("done" if p["complete"] == p["expected"]
                  else f"{p['complete']}/{p['expected']}"
                       + (f", {p['failed']} failed" if p["failed"] else ""))
-        print(f"  {name:18s} {state}")
+        # Mark the resumed work that a different build measured, so a "done"
+        # here is never mistaken for a number this build can stand behind.
+        origin = (f"  <- {', '.join(c[:8] for c in p['commits'])}"
+                  if p["stale"] else "")
+        print(f"  {name:18s} {state}{origin}")
+    warn_if_stale(progress, runner._git_commit)
 
 
 def _print_errors(runner, models, params, tail_lines: int = 25) -> None:

@@ -423,7 +423,14 @@ class BenchmarkRunner:
         }
 
     def progress(self, models, tuned_params=None) -> dict:
-        """Per model: how many (fold, arm) checkpoints exist and are clean."""
+        """Per model: how many (fold, arm) checkpoints exist, are clean, and
+        which build produced them.
+
+        result_key covers the config, not the code, so a checkpoint survives a
+        rewrite of its own adapter. That is what makes resume usable, and it is
+        also how two builds' timings end up in one table - so the commit each
+        checkpoint carries is reported alongside the counts.
+        """
         tuned_params = tuned_params or {}
         folds = self.cfg.protocol.folds
         out = {}
@@ -431,22 +438,37 @@ class BenchmarkRunner:
             key = self.result_key(name, tuned_params.get(name, {}))
             arms = self._covariate_arms(name) if name in self.registry.names() else [False]
             complete = failed = 0
+            commits = set()
             for arm in arms:
                 for fold in range(folds):
                     _, t_path = self._checkpoint_paths(name, key, fold, arm)
                     if not t_path.exists():
                         continue
                     try:
-                        status = pd.read_parquet(t_path, columns=["status"])["status"]
+                        t = pd.read_parquet(t_path, columns=["status", "git_commit"])
+                        commits.update(c for c in t["git_commit"].dropna().unique() if c)
                     except Exception:
-                        continue
-                    if (status == "failed").any():
+                        # Checkpoints predate the provenance column: still work,
+                        # just unattributable.
+                        try:
+                            t = pd.read_parquet(t_path, columns=["status"])
+                        except Exception:
+                            continue
+                    if (t["status"] == "failed").any():
                         failed += 1
                     else:
                         complete += 1
             out[name] = {"expected": folds * len(arms), "complete": complete,
-                         "failed": failed, "result_key": key}
+                         "failed": failed, "result_key": key,
+                         "commits": sorted(commits),
+                         # Unknown when git is unavailable, which is not stale.
+                         "stale": bool(self._git_commit and commits
+                                       and any(c != self._git_commit for c in commits))}
         return out
+
+    def stale_models(self, progress: dict) -> dict:
+        """Models whose checkpoints were measured by a different build."""
+        return {name: p["commits"] for name, p in progress.items() if p["stale"]}
 
     def _write(self, metrics, timings, metadata) -> dict:
         paths = {
@@ -552,13 +574,17 @@ def collect(cfg: Config, models=None, registry=None, tuned_params=None) -> RunRe
                     timings.append(done["timings"])
 
     metrics, timings = _concat(metrics), _concat(timings)
+    progress = runner.progress(models, tuned_params)
+    # collect() is where measurements from different builds silently become one
+    # table, so this is the last place to say so before the numbers are used.
+    warn_if_stale(progress, runner._git_commit)
     metadata = {
         "run_name": cfg.run.name,
         "collected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "config_hash": cfg.hash,
         "config": cfg.to_dict(),
         "models": models,
-        "progress": runner.progress(models, tuned_params),
+        "progress": progress,
         "note": "assembled from checkpoints by collect(); no models were run",
     }
     paths = runner._write(metrics, timings, metadata)
@@ -581,6 +607,26 @@ def _package_versions() -> dict:
         except PackageNotFoundError:
             out[name] = None
     return out
+
+
+def warn_if_stale(progress: dict, head: str) -> list:
+    """Name the models whose checkpoints were measured by a different build.
+
+    Resuming them is still correct - the config that determines their results
+    has not moved. What is not correct is reading their timings next to a
+    freshly measured model's, so the warning says how to re-measure.
+    """
+    stale = {name: p["commits"] for name, p in progress.items() if p["stale"]}
+    if not stale:
+        return []
+
+    print(f"WARNING: {len(stale)} model(s) carry checkpoints measured by a different "
+          f"build than HEAD ({head[:8]}); their timings are not comparable with "
+          f"freshly measured models.")
+    for name, commits in stale.items():
+        print(f"  {name:18s} built at {', '.join(c[:8] for c in commits)}")
+    print(f"  re-measure with: --models {','.join(stale)} --force")
+    return list(stale)
 
 
 def _git_commit() -> str:
