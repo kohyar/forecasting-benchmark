@@ -353,6 +353,23 @@ def test_a_table_that_mixes_builds_warns(cfg, panel, reg, capsys, monkeypatch):
     assert "--models constant --force" in out
 
 
+def test_a_partial_re_measure_is_not_suggested_when_every_build_trails_head(
+        cfg, panel, reg, capsys, monkeypatch):
+    """--force re-measures at HEAD. If no group is already at HEAD, re-running
+    the older ones lands on a third build instead of converging on one."""
+    monkeypatch.setattr("tsbench.runner._is_ancestor", lambda a, b: a == OLD and b == NEW)
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+    _run_at(NEW, cfg, panel, reg, ["other"])
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant", "other"])
+    capsys.readouterr()
+
+    warn_if_stale(progress, head="c" * 40)
+    out = capsys.readouterr().out
+
+    assert "--models" not in out, "a partial re-measure would add a third build"
+    assert "re-measure all with: --force" in out
+
+
 def test_mixed_builds_of_unknown_order_name_both_groups(cfg, panel, reg, capsys, monkeypatch):
     """Two commits with no ancestry between them (a rebase, another machine):
     say the table is mixed without guessing which side is authoritative."""

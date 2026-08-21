@@ -659,7 +659,15 @@ def warn_if_stale(progress: dict, head: str = "") -> list:
         return []
 
     stale = sorted(m for c, models in versions.items() if c != newest for m in models)
-    print(f"  re-measure with: --models {','.join(stale)} --force")
+    # --force re-measures at HEAD, so re-running only the older models converges
+    # on one build if the newest group is already HEAD, and adds a third if it
+    # is not. In that case the only command that ends with one build is a full
+    # re-measure.
+    if head and newest == head:
+        print(f"  re-measure with: --models {','.join(stale)} --force")
+    else:
+        print(f"  every build here trails HEAD ({head[:8]}), so re-running only "
+              f"part of it adds a third - re-measure all with: --force")
     return stale
 
 
