@@ -16,7 +16,7 @@ from tsbench.data.loader import load_panel
 from tsbench.models import registry as registry_module
 from tsbench.models.registry import family_members, partition_available
 from tsbench.pipeline import ensure_sample
-from tsbench.runner import BenchmarkRunner, collect, warn_if_stale
+from tsbench.runner import BenchmarkRunner, code_versions, collect, warn_if_stale
 from tsbench.tuning import tune_all
 
 
@@ -159,14 +159,14 @@ def _print_progress(runner, models, params) -> None:
     total = sum(p["expected"] for p in progress.values())
     print(f"checkpoints: {done}/{total} (model, fold) units complete "
           f"under {runner.checkpoint_root}")
+    mixed = len(code_versions(progress)) > 1
     for name, p in progress.items():
         state = ("done" if p["complete"] == p["expected"]
                  else f"{p['complete']}/{p['expected']}"
                       + (f", {p['failed']} failed" if p["failed"] else ""))
-        # Mark the resumed work that a different build measured, so a "done"
-        # here is never mistaken for a number this build can stand behind.
-        origin = (f"  <- {', '.join(c[:8] for c in p['commits'])}"
-                  if p["stale"] else "")
+        # Attribute each model only when the table actually mixes builds -
+        # otherwise every line carries the same commit and says nothing.
+        origin = f"  <- {', '.join(c[:8] for c in p['commits'])}" if mixed else ""
         print(f"  {name:18s} {state}{origin}")
     warn_if_stale(progress, runner._git_commit)
 

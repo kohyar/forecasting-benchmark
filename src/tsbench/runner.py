@@ -460,15 +460,8 @@ class BenchmarkRunner:
                         complete += 1
             out[name] = {"expected": folds * len(arms), "complete": complete,
                          "failed": failed, "result_key": key,
-                         "commits": sorted(commits),
-                         # Unknown when git is unavailable, which is not stale.
-                         "stale": bool(self._git_commit and commits
-                                       and any(c != self._git_commit for c in commits))}
+                         "commits": sorted(commits)}
         return out
-
-    def stale_models(self, progress: dict) -> dict:
-        """Models whose checkpoints were measured by a different build."""
-        return {name: p["commits"] for name, p in progress.items() if p["stale"]}
 
     def _write(self, metrics, timings, metadata) -> dict:
         paths = {
@@ -585,6 +578,7 @@ def collect(cfg: Config, models=None, registry=None, tuned_params=None) -> RunRe
         "config": cfg.to_dict(),
         "models": models,
         "progress": progress,
+        "code_versions": code_versions(progress),
         "note": "assembled from checkpoints by collect(); no models were run",
     }
     paths = runner._write(metrics, timings, metadata)
@@ -609,24 +603,64 @@ def _package_versions() -> dict:
     return out
 
 
-def warn_if_stale(progress: dict, head: str) -> list:
-    """Name the models whose checkpoints were measured by a different build.
+def code_versions(progress: dict) -> dict:
+    """commit -> the models whose checkpoints carry it."""
+    out = {}
+    for name, p in progress.items():
+        for commit in p["commits"]:
+            out.setdefault(commit, []).append(name)
+    return {c: sorted(models) for c, models in sorted(out.items())}
 
-    Resuming them is still correct - the config that determines their results
-    has not moved. What is not correct is reading their timings next to a
-    freshly measured model's, so the warning says how to re-measure.
+
+def _is_ancestor(older: str, newer: str) -> bool:
+    try:
+        return subprocess.run(
+            ["git", "merge-base", "--is-ancestor", older, newer],
+            cwd=Path(__file__).resolve().parent,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def _newest(commits) -> str:
+    """The one commit every other is an ancestor of, or "" if unorderable."""
+    for candidate in commits:
+        if all(_is_ancestor(other, candidate) for other in commits if other != candidate):
+            return candidate
+    return ""
+
+
+def warn_if_stale(progress: dict, head: str = "") -> list:
+    """Warn when one table holds measurements from more than one build.
+
+    Being behind HEAD is not the test: most commits never touch measurement,
+    and judging against HEAD would condemn every number in the repository the
+    next time anything at all is committed. What breaks comparability is two
+    builds inside the *same* table, so that is what this reports.
+
+    Resuming a checkpoint from an older build stays correct either way - the
+    config that determines its results has not moved. Only the timings sitting
+    side by side are the problem.
     """
-    stale = {name: p["commits"] for name, p in progress.items() if p["stale"]}
-    if not stale:
+    versions = code_versions(progress)
+    if len(versions) < 2:
         return []
 
-    print(f"WARNING: {len(stale)} model(s) carry checkpoints measured by a different "
-          f"build than HEAD ({head[:8]}); their timings are not comparable with "
-          f"freshly measured models.")
-    for name, commits in stale.items():
-        print(f"  {name:18s} built at {', '.join(c[:8] for c in commits)}")
+    print(f"WARNING: this table mixes {len(versions)} builds, so its timings are "
+          f"not comparable across models.")
+    for commit, models in versions.items():
+        print(f"  {commit[:8]}  {', '.join(models)}")
+
+    newest = _newest(list(versions))
+    if not newest:
+        print("  these builds have no ancestry between them - decide which is "
+              "authoritative, then re-measure the rest with --force")
+        return []
+
+    stale = sorted(m for c, models in versions.items() if c != newest for m in models)
     print(f"  re-measure with: --models {','.join(stale)} --force")
-    return list(stale)
+    return stale
 
 
 def _git_commit() -> str:

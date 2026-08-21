@@ -13,7 +13,7 @@ from tsbench.config import Config
 from tsbench.data.loader import normalize_panel
 from tsbench.models import registry
 from tsbench.models.base import ModelAdapter
-from tsbench.runner import BenchmarkRunner, collect
+from tsbench.runner import BenchmarkRunner, collect, warn_if_stale
 
 
 class Constant(ModelAdapter):
@@ -301,8 +301,9 @@ def test_force_discards_completed_checkpoints_for_the_named_models_only(cfg, pan
 # --- provenance: a checkpoint outlives the code that produced it -------------
 #
 # result_key covers the config, not the code, so an adapter rewrite silently
-# leaves its old checkpoints valid and collect() will merge measurements from
-# two builds into one table. Resume must keep working - but it has to say so.
+# leaves its old checkpoints valid and collect() merges measurements from two
+# builds into one table. The hazard is a table that *mixes* builds - not one
+# that merely predates HEAD, since most commits never touch measurement.
 
 OLD = "a" * 40
 NEW = "b" * 40
@@ -318,48 +319,68 @@ def _run_at(commit, cfg, panel, reg, models):
 def test_progress_names_the_commit_each_checkpoint_was_built_at(cfg, panel, reg):
     _run_at(OLD, cfg, panel, reg, ["constant"])
 
-    later = BenchmarkRunner(cfg, registry=reg)
-    later._git_commit = NEW
-    progress = later.progress(["constant"])
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant"])
 
     assert progress["constant"]["complete"] == 2, "the checkpoint still resumes"
     assert progress["constant"]["commits"] == [OLD]
-    assert progress["constant"]["stale"] is True
 
 
-def test_progress_does_not_flag_checkpoints_built_at_head(cfg, panel, reg):
-    _run_at(NEW, cfg, panel, reg, ["constant"])
+def test_one_build_behind_head_is_not_a_warning(cfg, panel, reg, capsys):
+    """A reporting-only commit must not invalidate every measurement in the
+    repository - the table is internally comparable, which is what matters."""
+    _run_at(OLD, cfg, panel, reg, ["constant", "other"])
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant", "other"])
+    capsys.readouterr()
 
-    later = BenchmarkRunner(cfg, registry=reg)
-    later._git_commit = NEW
+    stale = warn_if_stale(progress, head=NEW)
 
-    assert later.progress(["constant"])["constant"]["stale"] is False
+    assert stale == []
+    assert capsys.readouterr().out == ""
 
 
-def test_progress_flags_only_the_models_built_by_other_code(cfg, panel, reg):
+def test_a_table_that_mixes_builds_warns(cfg, panel, reg, capsys, monkeypatch):
+    monkeypatch.setattr("tsbench.runner._is_ancestor", lambda a, b: a == OLD and b == NEW)
     _run_at(OLD, cfg, panel, reg, ["constant"])
     _run_at(NEW, cfg, panel, reg, ["other"])
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant", "other"])
+    capsys.readouterr()
 
-    later = BenchmarkRunner(cfg, registry=reg)
-    later._git_commit = NEW
-    progress = later.progress(["constant", "other"])
-
-    assert progress["constant"]["stale"] is True
-    assert progress["other"]["stale"] is False
-
-
-def test_collect_warns_when_a_table_spans_code_versions(cfg, panel, reg, capsys, monkeypatch):
-    _run_at(OLD, cfg, panel, reg, ["constant"])
-    _run_at(NEW, cfg, panel, reg, ["other"])
-    monkeypatch.setattr("tsbench.runner._git_commit", lambda: NEW)
-
-    result = collect(cfg, models=["constant", "other"], registry=reg)
+    stale = warn_if_stale(progress, head=NEW)
     out = capsys.readouterr().out
 
-    assert "constant" in out and OLD[:8] in out, "the stale model is named"
-    assert "--force" in out, "the fix is spelled out"
-    assert result.metadata["progress"]["constant"]["stale"] is True
-    assert result.metadata["progress"]["other"]["stale"] is False
+    assert stale == ["constant"], "only the model on the older build"
+    assert "other" not in out.split("re-measure")[1], "the newest build is not re-run"
+    assert "--models constant --force" in out
+
+
+def test_mixed_builds_of_unknown_order_name_both_groups(cfg, panel, reg, capsys, monkeypatch):
+    """Two commits with no ancestry between them (a rebase, another machine):
+    say the table is mixed without guessing which side is authoritative."""
+    monkeypatch.setattr("tsbench.runner._is_ancestor", lambda a, b: False)
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+    _run_at(NEW, cfg, panel, reg, ["other"])
+    progress = BenchmarkRunner(cfg, registry=reg).progress(["constant", "other"])
+    capsys.readouterr()
+
+    warn_if_stale(progress, head=NEW)
+    out = capsys.readouterr().out
+
+    assert OLD[:8] in out and NEW[:8] in out
+    assert "constant" in out and "other" in out
+    assert "--models" not in out, "no guess about which side to discard"
+
+
+def test_collect_warns_when_a_table_spans_builds(cfg, panel, reg, capsys, monkeypatch):
+    monkeypatch.setattr("tsbench.runner._is_ancestor", lambda a, b: a == OLD and b == NEW)
+    _run_at(OLD, cfg, panel, reg, ["constant"])
+    _run_at(NEW, cfg, panel, reg, ["other"])
+    capsys.readouterr()
+
+    result = collect(cfg, models=["constant", "other"], registry=reg)
+
+    assert "constant" in capsys.readouterr().out
+    assert result.metadata["progress"]["constant"]["commits"] == [OLD]
+    assert result.metadata["code_versions"] == {OLD: ["constant"], NEW: ["other"]}
 
 
 def test_a_checkpoint_without_a_commit_column_still_counts_as_complete(cfg, panel, reg):
@@ -377,4 +398,3 @@ def test_a_checkpoint_without_a_commit_column_still_counts_as_complete(cfg, pane
 
     assert progress["constant"]["complete"] == 2
     assert progress["constant"]["commits"] == []
-    assert progress["constant"]["stale"] is False
