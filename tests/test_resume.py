@@ -271,6 +271,32 @@ def test_collect_assembles_results_without_running_anything(cfg, panel, reg):
     assert (cfg_out(cfg) / "run_metadata.json").exists()
 
 
+def test_collect_keeps_the_provenance_the_statistics_step_reads(cfg, panel, reg):
+    """run_stats.py prints seed, repeats and the protocol straight off
+    run_metadata.json, and iterates the horizons from it. An assembled run that
+    drops them takes the statistics step down with it.
+    """
+    BenchmarkRunner(cfg, registry=reg).run(panel, models=["constant"])
+
+    meta = collect(cfg, models=["constant"], registry=reg).metadata
+
+    assert meta["seed"] == cfg.run.seed
+    assert meta["n_repeats"] == cfg.run.n_repeats
+    assert meta["protocol"]["horizons"] == cfg.protocol.horizons
+
+
+def test_collect_records_the_environment_it_was_assembled_on(cfg, panel, reg):
+    """The assembled table is the artefact the paper cites, so it has to carry
+    the same environment provenance a single-tier run does.
+    """
+    BenchmarkRunner(cfg, registry=reg).run(panel, models=["constant"])
+
+    meta = collect(cfg, models=["constant"], registry=reg).metadata
+
+    for key in ("git_commit", "packages", "hardware", "python", "tsbench_version"):
+        assert key in meta, f"collect() dropped {key}"
+
+
 def test_collect_reports_what_is_missing(cfg, panel, reg):
     BenchmarkRunner(cfg, registry=reg).run(panel, models=["constant"])
 

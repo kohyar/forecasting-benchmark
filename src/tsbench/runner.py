@@ -384,12 +384,17 @@ class BenchmarkRunner:
 
     # -- output -----------------------------------------------------------
 
-    def _metadata(self, panel, splitter, models, tuned_params=None) -> dict:
+    def _panel_independent_metadata(self, models, tuned_params=None) -> dict:
+        """Everything describing the run that does not need the panel loaded.
+
+        collect() assembles from checkpoints without ever reading the panel, so
+        this is the part both paths must agree on - the statistics step and the
+        reproducibility appendix read it either way.
+        """
         tuned_params = tuned_params or {}
         return {
             "progress": self.progress(models, tuned_params),
             "run_name": self.cfg.run.name,
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "config_hash": self.cfg.hash,
             "config": self.cfg.to_dict(),
             "seed": self.cfg.run.seed,
@@ -405,6 +410,20 @@ class BenchmarkRunner:
             "covariate_ablation": self.cfg.models.covariate_ablation,
             "model_status": [self.registry.status(m) for m in models
                              if m in self.registry.names()],
+            "protocol": {
+                "folds": self.cfg.protocol.folds,
+                "step_weeks": self.cfg.protocol.step,
+                "horizons": self.cfg.protocol.horizons,
+                "season_length": self.cfg.data.season_length,
+                "overlapping_test_windows": self.cfg.protocol.step < max(self.cfg.protocol.horizons),
+            },
+        }
+
+    def _metadata(self, panel, splitter, models, tuned_params=None) -> dict:
+        shared = self._panel_independent_metadata(models, tuned_params)
+        return {
+            **shared,
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "panel": {
                 "n_series": int(panel["unique_id"].nunique()),
                 "n_rows": int(len(panel)),
@@ -412,12 +431,8 @@ class BenchmarkRunner:
                 "end": str(panel["ds"].max().date()),
             },
             "protocol": {
-                "folds": self.cfg.protocol.folds,
-                "step_weeks": self.cfg.protocol.step,
-                "horizons": self.cfg.protocol.horizons,
-                "season_length": self.cfg.data.season_length,
+                **shared["protocol"],
                 "origins": [str(o.date()) for o in splitter.origins(panel)],
-                "overlapping_test_windows": self.cfg.protocol.step < max(self.cfg.protocol.horizons),
             },
             "imputation": getattr(self, "_impute_report", {"method": "linear"}),
         }
@@ -572,12 +587,8 @@ def collect(cfg: Config, models=None, registry=None, tuned_params=None) -> RunRe
     # table, so this is the last place to say so before the numbers are used.
     warn_if_stale(progress, runner._git_commit)
     metadata = {
-        "run_name": cfg.run.name,
+        **runner._panel_independent_metadata(models, tuned_params),
         "collected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "config_hash": cfg.hash,
-        "config": cfg.to_dict(),
-        "models": models,
-        "progress": progress,
         "code_versions": code_versions(progress),
         "note": "assembled from checkpoints by collect(); no models were run",
     }
