@@ -34,6 +34,17 @@ sh("scripts/run_stats.py", "--run", f"{VOLUME}/results/spins-weekly-v1")
 
 # COMMAND ----------
 
+# MAGIC %md ## The paper's tables and figures
+# MAGIC Writes `results/spins-weekly-v1/paper/`: T3, T4, T5, T7 and T8 as booktabs
+# MAGIC LaTeX plus CSV, and F1, F8 and the coverage figure as vector PDF and 300dpi
+# MAGIC PNG. F7 comes from the statistics cell above, in `analysis/`.
+
+# COMMAND ----------
+
+sh("scripts/build_paper_artifacts.py", "--run", f"{VOLUME}/results/spins-weekly-v1")
+
+# COMMAND ----------
+
 # MAGIC %md ## Same, for the 50-series smoke run
 
 # COMMAND ----------
