@@ -37,6 +37,7 @@ def _quantile_column(alias: str, q: float) -> str:
 
 class NeuralAdapter(ModelAdapter):
     family = "global"
+    package = "neuralforecast"
     horizon_is_fit_time = True
 
     @classmethod

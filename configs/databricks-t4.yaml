@@ -47,7 +47,8 @@ metrics:
 
 cost:
   # VM list price + 1.5 DBU/h x your DBU rate. Confirm both in the portal;
-  # this is what turns wall clock into $/1k series in the paper.
+  # Optional and unset by design: the paper reports compute-seconds per 1k
+  # series rather than currency, so nothing downstream needs a price.
   usd_per_hour: null
   instance_type: Standard_NC8as_T4_v3
   runtime_version: 17.3 LTS ML (GPU)

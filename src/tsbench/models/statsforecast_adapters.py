@@ -21,6 +21,7 @@ def _level_to_quantiles(level: int) -> tuple:
 
 
 class StatsForecastAdapter(ModelAdapter):
+    package = "statsforecast"
     """Shared plumbing. Subclasses supply `_model()` only."""
 
     @classmethod

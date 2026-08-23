@@ -60,7 +60,9 @@ metrics:
 
 cost:
   # Fill these in once the GPU runner is fixed - they turn wall clock into
-  # $/1k series, and they are what a reader needs to reproduce the cost claim.
+  # Optional. The paper reports compute-seconds per 1k series, not currency:
+  # one node means a price is just that time times a constant, and a DBU rate
+  # is contract-specific. Left null, the dollar column is simply omitted.
   usd_per_hour: null
   instance_type: null
   runtime_version: null

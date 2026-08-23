@@ -21,6 +21,8 @@ class ModelAdapter(ABC):
     # Zero-shot models get a tuning budget of 0 by definition; the results
     # report that rather than leaving it blank.
     tunable: bool = True
+    #: the third-party package that provides the implementation
+    package: str = ""
     # Neural models bake the horizon into the architecture, so they refit per
     # horizon; everything else fits once and predicts at both.
     horizon_is_fit_time: bool = False

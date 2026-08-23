@@ -41,6 +41,7 @@ def _build(models, season_length: int, freq: str, num_threads: int):
 
 class LightGBMBase(ModelAdapter):
     family = "global"
+    package = "lightgbm"
 
     @classmethod
     def preload(cls):

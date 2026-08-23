@@ -15,6 +15,7 @@ WEEK = pd.Timedelta(days=7)
 @register
 class ProphetAdapter(ModelAdapter):
     name = "prophet"
+    package = "prophet"
     family = "local"
 
     @classmethod
