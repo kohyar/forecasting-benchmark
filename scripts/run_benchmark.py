@@ -154,6 +154,16 @@ def main() -> None:
         for name in cfg.models.enabled:
             print(f"  {name:18s} budget={tuned.budget[name]:3d}  "
                   f"best={tuned.best[name] or '-'}")
+        # A model that searched and found nothing keeps empty parameters, which
+        # means an unchanged result_key - so it would resume the untuned
+        # checkpoints and report them as this run's numbers. Stop instead.
+        barren = [name for name in cfg.models.enabled
+                  if tuned.budget.get(name) and not tuned.best.get(name)]
+        if barren:
+            sys.exit(f"every trial failed for {', '.join(barren)} - their results "
+                     f"would silently resume the untuned checkpoints. See the "
+                     f"error column in {tuned.path}")
+
         params = {name: {**cfg.models.params.get(name, {}), **tuned.best.get(name, {})}
                   for name in cfg.models.enabled}
         budget.update(tuned.budget)

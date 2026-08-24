@@ -215,3 +215,28 @@ def test_tuning_a_second_tier_keeps_the_first_tier_s_record(config_dict, raw_fra
     assert best["prophet"] == first["prophet"]
     saved = json.loads((tmp_path / cfg.run.name / "tuning_best.json").read_text())
     assert saved["objective"]
+
+
+def test_the_search_runs_on_the_device_the_run_will_use(cfg, panel, reg, monkeypatch):
+    """Constructing the adapter without a device left it on cpu while the run
+    measured on cuda. The neural trainers then rejected their own accelerator
+    setting and every trial failed, leaving the model on library defaults.
+    """
+    from tsbench import tuning as tuning_module
+
+    seen = []
+
+    class Recording(Tunable):
+        name = "recording"
+
+        def fit(self, train_df):
+            seen.append(self.device)
+            super().fit(train_df)
+
+    reg.register(Recording)
+    monkeypatch.setattr(tuning_module, "resolve_device", lambda preference: "cuda")
+
+    tune_all(panel, cfg, ["recording"], registry=reg)
+
+    assert seen, "the search never fit the model"
+    assert set(seen) == {"cuda"}, f"the search ran on {set(seen)}, not the run's device"

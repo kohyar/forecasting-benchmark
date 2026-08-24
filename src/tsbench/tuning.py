@@ -19,6 +19,7 @@ from tsbench.config import Config
 from tsbench.data.prepare import impute_gaps
 from tsbench.eval.metrics import evaluate, seasonal_denominators
 from tsbench.eval.splitter import RollingOriginSplitter
+from tsbench.measure import resolve_device
 from tsbench.models import registry as registry_module
 from tsbench.models.base import validate_prediction
 from tsbench.seeding import set_seeds
@@ -153,7 +154,11 @@ def _search(name, adapter_cls, cfg, train, actual, denominators, horizon, trials
                   "config_hash": cfg.hash, "seed": cfg.run.seed + trial.number,
                   "objective": OBJECTIVE}
         try:
-            model = adapter_cls(cfg, params=params)
+            # The search has to run on the device the measured run will use.
+            # Defaulting to cpu made the neural trainers reject their own
+            # device setting, and every trial failed with the model left on
+            # defaults - the search silently produced nothing.
+            model = adapter_cls(cfg, params=params, device=resolve_device(cfg.run.device))
             if adapter_cls.horizon_is_fit_time:
                 model.fit_horizon = horizon
             model.fit(train)
