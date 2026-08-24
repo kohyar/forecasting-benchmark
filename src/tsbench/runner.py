@@ -302,6 +302,8 @@ class BenchmarkRunner:
         try:
             adapter_cls.preload()
             model = adapter_cls(self.cfg, params=params, device=self.device)
+            if adapter_cls.horizon_is_fit_time:
+                model.fit_horizon = horizons[0]
             with measure(self.device) as fit_m:
                 model.fit(train)
         except Exception as exc:

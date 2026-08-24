@@ -154,6 +154,8 @@ def _search(name, adapter_cls, cfg, train, actual, denominators, horizon, trials
                   "objective": OBJECTIVE}
         try:
             model = adapter_cls(cfg, params=params)
+            if adapter_cls.horizon_is_fit_time:
+                model.fit_horizon = horizon
             model.fit(train)
             pred = model.predict(horizon)
 

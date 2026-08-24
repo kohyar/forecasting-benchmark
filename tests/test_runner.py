@@ -391,3 +391,37 @@ def test_package_versions_resolve_import_names_to_distributions(monkeypatch):
 
     assert runner._package_versions() == {
         "chronos": "1.5.2", "toto": "0.2.1", "absent": None}
+
+
+def test_a_horizon_at_fit_model_is_told_its_horizon_before_fit(runner, panel, reg):
+    """These models cannot build the architecture until the horizon is known.
+    If nobody supplies it, the work lands on the first predict and the timings
+    report training as inference - which is how a global model comes to look
+    almost free to train.
+    """
+    seen = []
+
+    class Recording(ModelAdapter):
+        name = "recording"
+        family = "global"
+        horizon_is_fit_time = True
+
+        def fit(self, train_df):
+            seen.append(("fit", self.fit_horizon))
+            self._ids = sorted(train_df["unique_id"].unique())
+            self._last = train_df["ds"].max()
+
+        def predict(self, horizon):
+            seen.append(("predict", horizon))
+            ds = pd.date_range(self._last + pd.Timedelta(days=7), periods=horizon,
+                               freq="7D")
+            return pd.DataFrame([{"unique_id": u, "ds": d, "yhat": 1.0}
+                                 for u in self._ids for d in ds])
+
+    reg.register(Recording)
+    runner.run(panel, models=["recording"])
+
+    fits = [h for stage, h in seen if stage == "fit"]
+    assert fits and all(h is not None for h in fits), \
+        "fit ran without a horizon, so training could not happen under the fit timer"
+    assert set(fits) == set(runner.cfg.protocol.horizons)

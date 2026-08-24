@@ -35,6 +35,10 @@ def run(workdir: Path) -> int:
     train = pd.read_parquet(workdir / "train.parquet")
     adapter_cls.preload()          # imports, CUDA context - outside every timer
     model = adapter_cls(cfg, params=spec["params"], device=device)
+    if adapter_cls.horizon_is_fit_time:
+        # The runner sends one horizon per spec for these, so training can
+        # happen under the fit timer instead of on the first predict.
+        model.fit_horizon = spec["horizons"][0]
 
     with measure(device) as fit_m:
         model.fit(train)

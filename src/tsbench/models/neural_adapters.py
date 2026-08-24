@@ -123,13 +123,25 @@ class NeuralAdapter(ModelAdapter):
         self._df = df
         self._nf = None
 
-    def predict(self, horizon: int) -> pd.DataFrame:
+        # The architecture needs the horizon, which is why these models refit
+        # per horizon. Training here rather than on first predict is what keeps
+        # the cost on the side of the ledger it belongs to.
+        if self.fit_horizon is not None:
+            self._train(self.fit_horizon)
+
+    def _train(self, horizon: int) -> None:
         from neuralforecast import NeuralForecast
 
+        self._nf = NeuralForecast(models=[self._build(horizon)], freq=self._freq)
+        self._nf.fit(self._df, verbose=False)
+        self._horizon = horizon
+
+    def predict(self, horizon: int) -> pd.DataFrame:
+        # Only reached when nobody declared the horizon before fit; the runner
+        # always does, so this covers direct use and keeps training correct
+        # rather than fast.
         if self._nf is None or self._horizon != horizon:
-            self._nf = NeuralForecast(models=[self._build(horizon)], freq=self._freq)
-            self._nf.fit(self._df, verbose=False)
-            self._horizon = horizon
+            self._train(horizon)
 
         futr_df = None
         if self._futr_cols:

@@ -31,6 +31,10 @@ class ModelAdapter(ABC):
         self.cfg = cfg
         self.params = dict(params or {})
         self.device = device
+        # Set by the caller before fit() when the architecture needs the horizon
+        # to exist. Training has to happen under the fit timer, or its cost is
+        # reported as inference.
+        self.fit_horizon = None
         self.season_length = cfg.data.season_length
         self.quantile_levels = list(cfg.metrics.quantile_levels)
 
