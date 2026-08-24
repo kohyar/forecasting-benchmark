@@ -13,7 +13,11 @@ from PIL import Image
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from tsbench.report.figures import accuracy_vs_cost, pareto_frontier  # noqa: E402
+from tsbench.report.figures import (  # noqa: E402
+    accuracy_vs_cost,
+    models_tied_with_best,
+    pareto_frontier,
+)
 from tsbench.report.style import FAMILIES, family_style, save_figure  # noqa: E402
 from tsbench.report.tables import (  # noqa: E402
     cost_per_1k_table,
@@ -259,3 +263,24 @@ def test_dataset_profile_summarises_the_sampled_panel():
 
     assert table.loc["series", "value"] == "3"
     assert table.loc["intermittent series (zero share >= 0.05)", "value"] == "2"
+
+
+def test_tie_region_holds_models_the_test_cannot_separate_from_the_best():
+    """Diebold-Mariano cannot separate the top three, so a frontier drawn as if
+    the ranking were real would overstate the result.
+    """
+    scores = pd.Series({"a": 0.60, "b": 0.61, "c": 0.80})
+    dm = pd.DataFrame([
+        {"model_a": "a", "model_b": "b", "p_value": 0.40},
+        {"model_a": "a", "model_b": "c", "p_value": 0.001},
+        {"model_a": "b", "model_b": "c", "p_value": 0.002},
+    ])
+
+    assert models_tied_with_best(scores, dm) == {"a", "b"}
+
+
+def test_tie_region_is_just_the_best_model_when_everything_separates():
+    scores = pd.Series({"a": 0.60, "b": 0.80})
+    dm = pd.DataFrame([{"model_a": "a", "model_b": "b", "p_value": 0.001}])
+
+    assert models_tied_with_best(scores, dm) == {"a"}

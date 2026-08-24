@@ -168,6 +168,21 @@ def test_labelling_leaves_a_single_arm_run_untouched(metrics):
     assert set(label_ablation_arms(metrics)["model"]) == set(metrics["model"])
 
 
+def test_critical_difference_diagram_is_written_for_print(metrics, tmp_path):
+    """F7 sits beside F1 and F8 in the paper, so it needs the same vector copy
+    and print resolution they do.
+    """
+    from PIL import Image
+
+    blocks = blocks_for_testing(metrics, metric="MASE", horizon=4)
+    path = tmp_path / "cd.png"
+
+    critical_difference_diagram(blocks, path)
+
+    assert (tmp_path / "cd.pdf").stat().st_size > 0
+    assert round(Image.open(path).info["dpi"][0]) >= 300
+
+
 def test_critical_difference_diagram_is_written(metrics, tmp_path):
     blocks = blocks_for_testing(metrics, metric="MASE", horizon=4)
     path = tmp_path / "cd.png"

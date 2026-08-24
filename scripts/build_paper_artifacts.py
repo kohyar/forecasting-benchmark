@@ -24,6 +24,10 @@ from tsbench.report.figures import (  # noqa: E402
     error_distribution,
 )
 from tsbench.report.style import save_figure  # noqa: E402
+from tsbench.stats.aggregate import (  # noqa: E402
+    blocks_for_testing,
+    critical_difference_diagram,
+)
 from tsbench.report.tables import (  # noqa: E402
     cost_per_1k_table,
     dataset_profile_table,
@@ -107,10 +111,25 @@ def main() -> None:
     print("figures ->", out_dir)
     families = metrics.groupby("model")["family"].first().to_dict()
     for horizon in horizons:
-        fig = accuracy_vs_cost(cost, accuracy, horizon=horizon,
+        # run_stats.py writes these; without them F1 draws a frontier that
+        # implies a ranking the significance tests may not support
+        dm_path = run_dir / "analysis" / f"diebold_mariano_h{horizon}.csv"
+        dm = pd.read_csv(dm_path) if dm_path.exists() else None
+        if dm is None:
+            print(f"  note: no {dm_path.name} yet, so F1 h={horizon} omits the "
+                  f"tie band. Run run_stats.py first for the full figure.")
+
+        fig = accuracy_vs_cost(cost, accuracy, horizon=horizon, dm=dm,
                                highlight=("autoarima", "tabpfn_ts"))
         save_figure(fig, out_dir / f"F1_accuracy_vs_cost_h{horizon}")
         print(f"  F1_accuracy_vs_cost_h{horizon}")
+
+        blocks = blocks_for_testing(metrics, metric="MASE", horizon=horizon)
+        if blocks.shape[1] >= 3:
+            critical_difference_diagram(
+                blocks, out_dir / f"F7_critical_difference_h{horizon}.png",
+                title=f"Mean rank on MASE, horizon {horizon}")
+            print(f"  F7_critical_difference_h{horizon}")
 
     save_figure(error_distribution(metrics, horizons, families=families),
                 out_dir / "F8_error_distribution")
@@ -120,8 +139,8 @@ def main() -> None:
                 out_dir / "F_coverage_calibration")
     print("  F_coverage_calibration")
 
-    print(f"\nF7 (critical-difference) comes from run_stats.py, which also writes "
-          f"the Diebold-Mariano and post-hoc tables:\n"
+    print(f"\nThe significance tables behind F1's tie band live in "
+          f"{run_dir / 'analysis'}, written by:\n"
           f"  python scripts/run_stats.py --run {run_dir}")
 
 

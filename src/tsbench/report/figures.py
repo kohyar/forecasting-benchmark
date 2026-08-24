@@ -28,6 +28,25 @@ def pareto_frontier(cost, error) -> np.ndarray:
     return ~dominated
 
 
+def models_tied_with_best(scores, dm, alpha: float = 0.05) -> set:
+    """The best model plus every model the pairwise test cannot separate from it.
+
+    A frontier drawn straight off the point estimates implies a ranking the
+    evidence does not support, so the figure marks this band instead.
+    """
+    scores = scores.dropna()
+    if scores.empty:
+        return set()
+
+    best = scores.idxmin()
+    tied = {best}
+    for _, row in dm.iterrows():
+        pair = {row["model_a"], row["model_b"]}
+        if best in pair and row["p_value"] >= alpha:
+            tied |= pair
+    return tied & set(scores.index)
+
+
 def _family_handles(families, patch=False):
     handles = []
     for family in FAMILIES:
@@ -81,7 +100,8 @@ def _place_labels(ax, names, x, y, show):
                     fontsize=7.5, color=INK, zorder=4)
 
 
-def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(),
+def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
+                     alpha: float = 0.05,
                      accuracy_column=None, accuracy_label="median MASE"):
     """F1: where a model sits on the accuracy/compute trade-off.
 
@@ -101,6 +121,20 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(),
     on_front = pareto_frontier(x, y)
 
     fig, ax = plt.subplots(figsize=(7.0, 4.4))
+
+    tied_handle, tied = None, set()
+    if dm is not None:
+        tied = models_tied_with_best(joined[score], dm, alpha=alpha)
+        if len(tied) > 1:
+            # ring each tied model rather than shading a band between them: the
+            # models lying inside that range are mostly separable from the best,
+            # so a continuous band would claim a tie the test does not support
+            marked = joined.loc[sorted(tied)]
+            tied_handle = ax.scatter(
+                marked[cost_column], marked[score], s=200, facecolors="none",
+                edgecolors=INK, linewidths=1.0, zorder=2,
+                label=f"not separable from best (p$\\geq${alpha})")
+
     for family, group in joined.groupby("family"):
         style = family_style(family)
         ax.scatter(group[cost_column], group[score],
@@ -118,8 +152,9 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(),
     span = y.max() - y.min()
     ax.set_ylim(y.min() - span * 0.10, y.max() + span * 0.10)
 
+    # name the frontier, the tied set and anything explicitly called out
     _place_labels(ax, list(joined.index), x, y,
-                  [front or name in highlight
+                  [front or name in highlight or name in tied
                    for name, front in zip(joined.index, on_front)])
 
     ax.set_xlabel("compute seconds per 1,000 series (one fit + one predict, log scale)")
@@ -127,7 +162,8 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(),
     ax.set_title(f"Accuracy against compute, horizon {horizon}", loc="left")
     ax.grid(axis="both", color=GRID, linewidth=0.6)
     ax.set_axisbelow(True)
-    ax.legend(handles=_family_handles(set(joined["family"])) + [frontier],
+    extra = [frontier] + ([tied_handle] if tied_handle is not None else [])
+    ax.legend(handles=_family_handles(set(joined["family"])) + extra,
               loc="upper right", fontsize=8)
     return fig
 

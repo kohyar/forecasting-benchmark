@@ -3,6 +3,8 @@
 The output schema was chosen so a groupby lands directly on a table: no
 reshaping between what the runner wrote and what goes in the paper.
 """
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -117,7 +119,10 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    from tsbench.report.style import INK, INK_MUTED, apply_paper_style, save_figure
     from tsbench.stats.tests import friedman_nemenyi
+
+    apply_paper_style()
 
     result = friedman_nemenyi(blocks, alpha=alpha)
     ranks = result["mean_ranks"].sort_values()
@@ -130,16 +135,18 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    ax.plot([lo, hi], [0.82, 0.82], color="black", linewidth=1)
+    ax.plot([lo, hi], [0.82, 0.82], color=INK, linewidth=1)
     for tick in range(1, k + 1):
-        ax.plot([tick, tick], [0.82, 0.85], color="black", linewidth=1)
-        ax.text(tick, 0.88, str(tick), ha="center", va="bottom", fontsize=9)
+        ax.plot([tick, tick], [0.82, 0.85], color=INK, linewidth=1)
+        ax.text(tick, 0.88, str(tick), ha="center", va="bottom", fontsize=8,
+                color=INK_MUTED)
 
     for i, (name, rank) in enumerate(ranks.items()):
         y = 0.72 - i * (0.62 / max(k, 1))
-        ax.plot([rank, rank], [0.82, y], color="0.3", linewidth=1)
-        ax.plot([rank, lo + 0.1], [y, y], color="0.3", linewidth=1)
-        ax.text(lo + 0.05, y, f"{name} ({rank:.2f})", ha="right", va="center", fontsize=9)
+        ax.plot([rank, rank], [0.82, y], color=INK_MUTED, linewidth=0.8)
+        ax.plot([rank, lo + 0.1], [y, y], color=INK_MUTED, linewidth=0.8)
+        ax.text(lo + 0.05, y, f"{name} ({rank:.2f})", ha="right", va="center",
+                fontsize=8, color=INK)
 
     # cliques: consecutive models whose mean ranks differ by less than the CD
     values = ranks.to_numpy()
@@ -150,15 +157,17 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
             end += 1
         if end > start:
             ax.plot([values[start], values[end]], [bar_y, bar_y],
-                    color="black", linewidth=3, solid_capstyle="butt")
+                    color=INK, linewidth=3, solid_capstyle="butt")
             bar_y -= 0.03
 
     ax.text(hi, 0.95, f"CD = {cd:.2f}  (alpha={alpha}, n={result['n_blocks']})",
-            ha="right", va="top", fontsize=9)
+            ha="right", va="top", fontsize=8, color=INK_MUTED)
     if title:
-        ax.set_title(title, fontsize=10)
+        ax.set_title(title, fontsize=10, loc="left")
 
     fig.tight_layout()
-    fig.savefig(path, dpi=200, bbox_inches="tight")
+    # same vector-plus-print-raster pair as the other figures; `path` names the
+    # raster copy so callers that print it keep working
+    save_figure(fig, Path(path).with_suffix(""))
     plt.close(fig)
     return result
