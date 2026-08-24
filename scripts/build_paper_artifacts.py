@@ -39,16 +39,19 @@ from tsbench.report.tables import (  # noqa: E402
 
 
 def _emit(frame: pd.DataFrame, out_dir: Path, stem: str, caption: str, label: str,
-          float_format: str = "%.4f") -> None:
+          float_format: str = "%.4f", fit_width: bool = False) -> None:
     frame.to_csv(out_dir / f"{stem}.csv")
     (out_dir / f"{stem}.tex").write_text(
-        to_latex(frame, caption=caption, label=label, float_format=float_format))
+        to_latex(frame, caption=caption, label=label, float_format=float_format,
+                 fit_width=fit_width))
     print(f"  {stem:<28} {len(frame):>3} rows -> {stem}.tex, {stem}.csv")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True, help="a results/<run-name> directory")
+    ap.add_argument("--sample", help="sample_series.csv, when the path the run "
+                                     "recorded is not reachable from here")
     ap.add_argument("--intermittent-bin", type=int, default=1,
                     help="lowest zero_bin counted as intermittent for T5")
     args = ap.parse_args()
@@ -76,21 +79,32 @@ def main() -> None:
 
     accuracy = main_accuracy_table(metrics, horizons=horizons)
     _emit(accuracy, out_dir, "T7_main_accuracy",
-          "Median accuracy by model and horizon.", "tab:main-accuracy")
+          "Median accuracy by model and horizon.", "tab:main-accuracy",
+          fit_width=True)
 
     cost = cost_per_1k_table(timings)
     _emit(cost, out_dir, "T8_cost",
           "Compute cost of running each model once over 1,000 series "
           "(one fit plus one predict), and as a multiple of the cheapest model.",
-          "tab:cost", float_format="%.3f")
+          "tab:cost", float_format="%.3f", fit_width=True)
+
+    # What each model actually spent. The timings carry it too, but a run
+    # assembled from checkpoints predates any later tuning, so the recorded
+    # budget is the one to trust.
+    tuning_path = run_dir / "tuning_best.json"
+    budget = (json.loads(tuning_path.read_text()).get("budget", {})
+              if tuning_path.exists() else {})
+    if not budget:
+        print("  NOTE: no tuning_best.json - T4 will report every model as untuned")
 
     registry = default_registry()
-    roster = model_roster_table(registry, models)
+    roster = model_roster_table(registry, models, versions=meta.get("packages"),
+                                cfg=cfg, budget=budget)
     _emit(roster, out_dir, "T4_model_roster",
           "Model roster: implementation, version and tuning treatment.",
-          "tab:roster")
+          "tab:roster", fit_width=True)
 
-    sample, _ = load_sample(cfg.sampling.sample_path)
+    sample, _ = load_sample(args.sample or cfg.sampling.sample_path)
     profile = dataset_profile_table(sample, zero_share_bins=cfg.sampling.zero_share_bins)
     _emit(profile, out_dir, "T3_dataset_profile",
           "Profile of the benchmarked sample.", "tab:dataset")

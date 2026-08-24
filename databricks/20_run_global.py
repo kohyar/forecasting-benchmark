@@ -23,7 +23,7 @@ sh("scripts/run_global.py", "--config", CONFIG, "--n-series", "50",
 
 # COMMAND ----------
 
-sh("scripts/run_global.py", "--config", CONFIG)
+sh("scripts/run_global.py", "--config", CONFIG, "--tune")
 
 # COMMAND ----------
 

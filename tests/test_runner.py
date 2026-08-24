@@ -108,7 +108,8 @@ def test_each_repeat_gets_its_own_seed(runner, panel):
 
 
 def test_every_row_carries_its_provenance(runner, panel, cfg):
-    result = runner.run(panel, models=["constant"])
+    result = runner.run(panel, models=["constant"],
+                        tuning_budget={"constant": cfg.tuning.budget_trials})
 
     for df in (result.metrics, result.timings):
         assert (df["config_hash"] == cfg.hash).all()
@@ -364,3 +365,29 @@ def test_preload_runs_before_the_timed_fit(cfg, panel, reg):
 
     assert order[:2] == ["preload", "fit"]
     assert order.count("preload") == order.count("fit")
+
+
+def test_package_versions_resolve_import_names_to_distributions(monkeypatch):
+    """The adapters declare import names, but version() wants a distribution
+    name - chronos ships as chronos-forecasting, toto as toto-ts. Looking up
+    the import name directly records nothing for four of the five foundation
+    backends.
+    """
+    import tsbench.runner as runner
+
+    monkeypatch.setattr(runner, "TRACKED_PACKAGES", ["chronos", "toto", "absent"])
+    monkeypatch.setattr(runner, "packages_distributions",
+                        lambda: {"chronos": ["chronos-forecasting"],
+                                 "toto": ["toto-ts"]})
+
+    def fake_version(dist):
+        if dist == "chronos-forecasting":
+            return "1.5.2"
+        if dist == "toto-ts":
+            return "0.2.1"
+        raise runner.PackageNotFoundError(dist)
+
+    monkeypatch.setattr(runner, "version", fake_version)
+
+    assert runner._package_versions() == {
+        "chronos": "1.5.2", "toto": "0.2.1", "absent": None}

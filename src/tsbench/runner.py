@@ -14,7 +14,8 @@ import tempfile
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import (PackageNotFoundError, packages_distributions,
+                                version)
 from pathlib import Path
 
 import numpy as np
@@ -39,6 +40,11 @@ from tsbench.seeding import set_seeds
 TRACKED_PACKAGES = [
     "pandas", "numpy", "scipy", "statsforecast", "mlforecast", "neuralforecast",
     "lightgbm", "prophet", "torch", "optuna", "mlflow",
+    # foundation backends: only installed on the cluster, so the run is the
+    # only place their versions can be captured. transformers is the shared
+    # runtime for three of them and moves independently of the wrappers.
+    "chronos", "timesfm", "toto", "tabpfn_time_series", "tsfm_public",
+    "transformers",
 ]
 
 
@@ -75,6 +81,7 @@ class BenchmarkRunner:
         # Models whose existing checkpoints are discarded before running -
         # for re-validating a model after its adapter changed.
         self.force = set(force or ())
+        self._tuning_budget = {}
         self._git_commit = _git_commit()
 
     def result_key(self, model: str, params: dict | None = None) -> str:
@@ -82,9 +89,13 @@ class BenchmarkRunner:
 
     # -- orchestration ----------------------------------------------------
 
-    def run(self, panel: pd.DataFrame, models=None, tuned_params=None) -> RunResult:
+    def run(self, panel: pd.DataFrame, models=None, tuned_params=None,
+            tuning_budget=None) -> RunResult:
         models = list(models or self.cfg.models.enabled)
         tuned_params = tuned_params or {}
+        # What each model actually spent, not what the config offered: a model
+        # with nothing to search spends nothing however large the budget is.
+        self._tuning_budget = tuning_budget or {}
 
         splitter = RollingOriginSplitter(self.cfg)
         denominators = denominators_for_protocol(panel, self.cfg, splitter)
@@ -172,8 +183,7 @@ class BenchmarkRunner:
             "fit_key": fit_key,
             "config_hash": self.cfg.hash,
             "run_name": self.cfg.run.name,
-            "tuning_trials": (self.cfg.tuning.budget_trials
-                              if getattr(adapter_cls, "tunable", True) else 0),
+            "tuning_trials": self._tuning_budget.get(name, 0),
         }
         return self._execute(name, adapter_cls, params, train, fold, horizons,
                              denominators, common)
@@ -605,12 +615,22 @@ def _empty_measurement(device: str, train: pd.DataFrame) -> dict:
 
 
 def _package_versions() -> dict:
+    """Versions keyed by import name, which is what the adapters declare.
+
+    version() takes a distribution name, and for the foundation backends the
+    two differ - chronos ships as chronos-forecasting, toto as toto-ts - so the
+    import name has to be resolved before it can be looked up.
+    """
+    distributions = packages_distributions()
     out = {}
     for name in TRACKED_PACKAGES:
-        try:
-            out[name] = version(name)
-        except PackageNotFoundError:
-            out[name] = None
+        out[name] = None
+        for dist in distributions.get(name) or [name]:
+            try:
+                out[name] = version(dist)
+                break
+            except PackageNotFoundError:
+                continue
     return out
 
 

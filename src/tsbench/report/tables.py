@@ -1,11 +1,15 @@
 """The paper's tables, as DataFrames ready to emit."""
 import pandas as pd
 
+from tsbench.tuning import declared_space
+
 # backslash first, or the replacements introduced below get escaped again
 _LATEX_SPECIALS = {
     "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
     "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}",
     "^": r"\textasciicircum{}",
+    # bare angle brackets render as inverted punctuation in the default encoding
+    "<": r"\textless{}", ">": r"\textgreater{}",
 }
 
 
@@ -17,9 +21,12 @@ def _escape(text) -> str:
 
 
 def to_latex(frame: pd.DataFrame, caption: str, label: str,
-             float_format: str = "%.4f") -> str:
+             float_format: str = "%.4f", fit_width: bool = False) -> str:
     """A booktabs table. Model names carry underscores, so escaping is not
     optional - an unescaped one fails the LaTeX build rather than the proof.
+
+    `fit_width` scales the table to the text width. The cost table is twelve
+    columns wide and overflows a portrait page at any font size worth reading.
     """
     escaped = frame.copy()
     escaped.index = pd.Index([_escape(v) for v in escaped.index],
@@ -29,9 +36,14 @@ def to_latex(frame: pd.DataFrame, caption: str, label: str,
         if escaped[column].dtype == object:
             escaped[column] = escaped[column].map(_escape)
 
-    return escaped.to_latex(caption=_escape(caption), label=label,
+    body = escaped.to_latex(caption=_escape(caption), label=label,
                             float_format=float_format, escape=False,
                             position="htbp")
+    if fit_width:
+        body = body.replace(r"\begin{tabular}",
+                            "\\resizebox{\\linewidth}{!}{%\n\\begin{tabular}")
+        body = body.replace(r"\end{tabular}", "\\end{tabular}%\n}")
+    return body
 
 
 def main_accuracy_table(metrics: pd.DataFrame, metric_names=("MASE", "RMSSE", "sMAPE"),
@@ -102,29 +114,56 @@ def cost_per_1k_table(timings: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def model_roster_table(registry, names, params=None) -> pd.DataFrame:
-    """T4: what each model actually is - implementation, version, whether it
-    was tuned, and for the zero-shot models which checkpoint was loaded.
+def model_roster_table(registry, names, versions=None, cfg=None,
+                       budget=None) -> pd.DataFrame:
+    """T4: what each model actually is - implementation, version, how it was
+    tuned, and for the zero-shot models which checkpoint was loaded.
+
+    `versions` is the package map the run recorded. Prefer it: it names the
+    build that produced the results, whereas the local environment may not even
+    have the foundation packages installed.
+
+    `budget` is the trial count each model actually spent, from the run's
+    tuning_best.json. Without it the column can only report what a model is
+    capable of, which is how a table ends up claiming a naive baseline was
+    tuned.
     """
+    versions = versions or {}
+    budget = budget or {}
     from importlib.metadata import PackageNotFoundError, version
 
     rows = []
     for name in names:
         adapter = registry.get(name)
         package = getattr(adapter, "package", "") or ""
-        try:
-            installed = version(package) if package else ""
-        except PackageNotFoundError:
-            installed = "not installed"
+        installed = versions.get(package) or ""
+        if not installed and package:
+            try:
+                installed = version(package)
+            except PackageNotFoundError:
+                installed = "not recorded"
+        space = declared_space(adapter, cfg) if cfg else {}
         rows.append({
             "model": name,
             "family": adapter.family,
             "package": package,
             "version": installed,
             "checkpoint": getattr(adapter, "checkpoint", "") or "",
-            "tuned": "yes" if getattr(adapter, "tunable", True) else "zero-shot",
+            "tuned": _tuning_label(adapter, space, budget.get(name)),
+            "tuning ranges": "; ".join(f"{k} {v}" for k, v in space.items()),
         })
     return pd.DataFrame(rows).set_index("model")
+
+
+def _tuning_label(adapter, space, spent) -> str:
+    """Three states the old yes/no could not tell apart: evaluated zero-shot,
+    searched over a declared space, and having no hyperparameters to search.
+    """
+    if not getattr(adapter, "tunable", True):
+        return "zero-shot"
+    if not space:
+        return "n/a"
+    return f"{spent} trials" if spent else "defaults"
 
 
 def dataset_profile_table(profile: pd.DataFrame, zero_share_bins=None) -> pd.DataFrame:

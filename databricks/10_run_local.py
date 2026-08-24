@@ -23,7 +23,7 @@ sh("scripts/run_local.py", "--config", CONFIG, "--n-series", "50",
 
 # COMMAND ----------
 
-sh("scripts/run_local.py", "--config", CONFIG)
+sh("scripts/run_local.py", "--config", CONFIG, "--tune")
 
 # COMMAND ----------
 

@@ -19,6 +19,7 @@ from tsbench.report.figures import (  # noqa: E402
     pareto_frontier,
 )
 from tsbench.report.style import FAMILIES, family_style, save_figure  # noqa: E402
+from tsbench.tuning import declared_space  # noqa: E402
 from tsbench.report.tables import (  # noqa: E402
     cost_per_1k_table,
     dataset_profile_table,
@@ -284,3 +285,73 @@ def test_tie_region_is_just_the_best_model_when_everything_separates():
     dm = pd.DataFrame([{"model_a": "a", "model_b": "b", "p_value": 0.001}])
 
     assert models_tied_with_best(scores, dm) == {"a"}
+
+
+def test_to_latex_scales_a_wide_table_to_the_text_width():
+    """The cost table carries twelve columns and overflows a portrait page at
+    any readable font size, so it has to be scaled rather than shrunk.
+    """
+    frame = pd.DataFrame({f"c{i}": [1.0] for i in range(12)},
+                         index=pd.Index(["naive"], name="model"))
+
+    out = to_latex(frame, caption="Cost", label="tab:cost", fit_width=True)
+
+    assert out.index(r"\resizebox") < out.index(r"\begin{tabular}")
+    assert out.index(r"\end{tabular}") < out.rindex("}")
+
+
+def test_to_latex_leaves_a_narrow_table_unscaled():
+    frame = pd.DataFrame({"value": [1.0]}, index=pd.Index(["naive"], name="model"))
+
+    out = to_latex(frame, caption="Profile", label="tab:profile")
+
+    assert r"\resizebox" not in out
+
+
+def test_to_latex_escapes_angle_brackets():
+    """LaTeX's default encoding renders a bare > as an inverted question mark,
+    so a threshold like "zero share >= 0.05" comes out as "zero share ?= 0.05".
+    """
+    frame = pd.DataFrame({"value": ["1"]},
+                         index=pd.Index(["zero share >= 0.05"], name="property"))
+
+    out = to_latex(frame, caption="Profile", label="tab:profile")
+
+    assert r"\textgreater{}= 0.05" in out
+    assert ">" not in out.replace(r"\textgreater{}", "")
+
+
+def test_model_roster_prefers_the_version_recorded_by_the_run():
+    """The version that produced a result is the one the run recorded, not
+    whatever happens to be installed when the table is rebuilt - the foundation
+    packages live only on the cluster.
+    """
+    from tsbench.models.registry import default
+
+    roster = model_roster_table(default(), ["autoarima"],
+                                versions={"statsforecast": "9.9.9-from-the-run"})
+
+    assert roster.loc["autoarima", "version"] == "9.9.9-from-the-run"
+
+
+def test_declared_space_reports_the_search_space_without_running_a_trial(config_dict):
+    """The reviewer-facing question is what range each hyperparameter was
+    searched over; recording a probe trial answers it without tuning anything.
+    """
+    from tsbench.config import Config
+    from tsbench.models.registry import default
+
+    cfg = Config.from_dict(config_dict)
+    spaces = declared_space(default().get("lightgbm_global"), cfg)
+
+    assert spaces["learning_rate"] == "0.01-0.2 log"
+    assert spaces["n_estimators"] == "100-600"
+
+
+def test_declared_space_is_empty_for_a_zero_shot_model(config_dict):
+    from tsbench.config import Config
+    from tsbench.models.registry import default
+
+    cfg = Config.from_dict(config_dict)
+
+    assert declared_space(default().get("chronos2"), cfg) == {}

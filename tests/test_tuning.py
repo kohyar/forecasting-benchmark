@@ -156,7 +156,62 @@ def test_tuned_parameters_are_usable_as_runner_input(cfg, panel, reg, tmp_path):
 
     result = tune_all(panel, cfg, ["tunable"], registry=reg)
     run = BenchmarkRunner(cfg, registry=reg).run(
-        panel, models=["tunable"], tuned_params=result.best)
+        panel, models=["tunable"], tuned_params=result.best,
+        tuning_budget=result.budget)
 
     assert (run.timings["status"] == "ok").all()
     assert (run.timings["tuning_trials"] == cfg.tuning.budget_trials).all()
+
+
+def test_a_run_that_did_not_tune_records_no_trials(cfg, panel, reg):
+    """The budget the config offers is not evidence that anything was spent -
+    reporting it regardless is how a table comes to claim an untuned run was
+    tuned.
+    """
+    from tsbench.runner import BenchmarkRunner
+
+    run = BenchmarkRunner(cfg, registry=reg).run(panel, models=["tunable"])
+
+    assert (run.timings["tuning_trials"] == 0).all()
+
+
+def test_a_model_with_no_search_space_gets_no_trials(config_dict, raw_frame):
+    """AutoARIMA and the naive baselines inherit tunable=True but declare an
+    empty space. Spending the budget on them runs the same fit twenty times.
+    """
+    from tsbench.data.loader import normalize_panel
+    from tsbench.tuning import tune_all
+
+    cfg = Config.from_dict(config_dict)
+    panel = normalize_panel(raw_frame, cfg)
+
+    result = tune_all(panel, cfg, ["naive", "autoarima"])
+
+    assert result.budget == {"naive": 0, "autoarima": 0}
+    assert result.trials.empty
+
+
+def test_tuning_a_second_tier_keeps_the_first_tier_s_record(config_dict, raw_frame,
+                                                            tmp_path):
+    """Each tier tunes in its own job, so a plain write would leave the run
+    holding only whichever tier finished last.
+    """
+    import json
+
+    from tsbench.data.loader import normalize_panel
+    from tsbench.tuning import load_best, tune_all
+
+    config_dict["run"]["output_dir"] = str(tmp_path)
+    cfg = Config.from_dict(config_dict)
+    panel = normalize_panel(raw_frame, cfg)
+
+    tune_all(panel, cfg, ["prophet"])
+    first, _ = load_best(cfg)
+    tune_all(panel, cfg, ["naive"])
+    best, budget = load_best(cfg)
+
+    assert "prophet" in best, "the earlier tier's parameters were dropped"
+    assert set(budget) == {"prophet", "naive"}
+    assert best["prophet"] == first["prophet"]
+    saved = json.loads((tmp_path / cfg.run.name / "tuning_best.json").read_text())
+    assert saved["objective"]

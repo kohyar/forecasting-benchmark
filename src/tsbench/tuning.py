@@ -43,6 +43,64 @@ def tuning_origin(panel: pd.DataFrame, cfg: Config) -> pd.Timestamp:
     return first - max(cfg.protocol.horizons) * WEEK
 
 
+class _RecordingTrial:
+    """Stands in for an Optuna trial so an adapter declares its search space
+    without a study being run. Every suggestion returns the low end, which is
+    only ever used to build the dict we then throw away.
+    """
+
+    def __init__(self):
+        self.spaces = {}
+
+    def _numeric(self, name, low, high, log):
+        self.spaces[name] = f"{low}-{high}" + (" log" if log else "")
+
+    def suggest_int(self, name, low, high, step=1, log=False):
+        self._numeric(name, low, high, log)
+        return low
+
+    def suggest_float(self, name, low, high, step=None, log=False):
+        self._numeric(name, low, high, log)
+        return low
+
+    def suggest_categorical(self, name, choices):
+        self.spaces[name] = "{" + ", ".join(str(c) for c in choices) + "}"
+        return choices[0]
+
+
+def declared_space(adapter_cls, cfg) -> dict:
+    """The ranges an adapter searches, as display strings.
+
+    Empty means there is nothing to search, and that covers two different
+    cases: the zero-shot models, which declare no space at all, and the
+    statsforecast Auto* models, which select their own order internally. Both
+    must end up with a budget of zero - spending trials on an empty space costs
+    real time and searches nothing.
+    """
+    if not getattr(adapter_cls, "tunable", True):
+        return {}
+    trial = _RecordingTrial()
+    try:
+        adapter_cls(cfg).tuning_space(trial)
+    except (AttributeError, NotImplementedError):
+        return {}
+    return trial.spaces
+
+
+def load_best(cfg: Config) -> tuple:
+    """The parameters an earlier --tune recorded, as (best, budget).
+
+    result_key folds the parameters in, so a run that forgets them reads a
+    different checkpoint than the tuned run wrote. Every entry point loads this
+    rather than trusting the config alone.
+    """
+    path = Path(cfg.run.output_dir) / cfg.run.name / "tuning_best.json"
+    if not path.exists():
+        return {}, {}
+    saved = json.loads(path.read_text())
+    return saved.get("best", {}), saved.get("budget", {})
+
+
 def tune_all(panel: pd.DataFrame, cfg: Config, models=None, registry=None) -> TuningResult:
     registry = registry or registry_module.default()
     models = list(models or cfg.models.enabled)
@@ -59,7 +117,7 @@ def tune_all(panel: pd.DataFrame, cfg: Config, models=None, registry=None) -> Tu
     best, best_value, budget, rows = {}, {}, {}, []
     for name in models:
         adapter_cls = registry.get(name)
-        trials = cfg.tuning.budget_trials if getattr(adapter_cls, "tunable", True) else 0
+        trials = cfg.tuning.budget_trials if declared_space(adapter_cls, cfg) else 0
         budget[name] = trials
 
         if trials == 0:
@@ -131,15 +189,32 @@ def _write(frame: pd.DataFrame, cfg: Config, best: dict, budget: dict, origin) -
     out_dir = Path(cfg.run.output_dir) / cfg.run.name
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # The tiers tune separately, so a plain write would drop whichever tier
+    # went first. Keep every other model's record and replace only this one's.
     path = out_dir / "tuning_trials.parquet"
+    if path.exists():
+        prior = pd.read_parquet(path)
+        parts = [p for p in (prior[~prior["model"].isin(list(budget))], frame)
+                 if not p.empty]
+        frame = pd.concat(parts, ignore_index=True) if parts else frame.iloc[:0]
     frame.to_parquet(path, index=False)
-    (out_dir / "tuning_best.json").write_text(json.dumps({
+
+    best_path = out_dir / "tuning_best.json"
+    merged_best, merged_budget = {}, {}
+    if best_path.exists():
+        prior = json.loads(best_path.read_text())
+        merged_best.update(prior.get("best", {}))
+        merged_budget.update(prior.get("budget", {}))
+    merged_best.update(best)
+    merged_budget.update(budget)
+
+    best_path.write_text(json.dumps({
         "config_hash": cfg.hash,
         "seed": cfg.run.seed,
         "budget_trials": cfg.tuning.budget_trials,
         "objective": OBJECTIVE,
         "tuning_origin": str(origin.date()),
-        "budget": budget,
-        "best": best,
+        "budget": merged_budget,
+        "best": merged_best,
     }, indent=2, default=str))
     return path

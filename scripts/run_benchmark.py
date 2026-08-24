@@ -17,7 +17,7 @@ from tsbench.models import registry as registry_module
 from tsbench.models.registry import family_members, partition_available
 from tsbench.pipeline import ensure_sample
 from tsbench.runner import BenchmarkRunner, code_versions, collect, warn_if_stale
-from tsbench.tuning import tune_all
+from tsbench.tuning import load_best, tune_all
 
 
 def main() -> None:
@@ -100,20 +100,31 @@ def main() -> None:
     raw["models"]["enabled"] = runnable
     cfg = Config.from_dict(raw)
 
+    # Tuned parameters are part of a model's result_key, so every entry point
+    # that resolves a checkpoint has to apply them - otherwise a status or a
+    # collect quietly reports on the untuned run instead.
+    saved_best, saved_budget = load_best(cfg)
+    params = {name: {**cfg.models.params.get(name, {}), **saved_best.get(name, {})}
+              for name in cfg.models.enabled}
+    if saved_best:
+        tuned_names = [n for n in cfg.models.enabled if saved_best.get(n)]
+        print(f"tuned params loaded for {len(tuned_names)} model(s): "
+              f"{', '.join(tuned_names) or '-'}")
+
     if args.status:
         _print_progress(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False),
-                        cfg.models.enabled, cfg.models.params)
+                        cfg.models.enabled, params)
         return
 
     if args.errors:
         _print_errors(BenchmarkRunner(cfg, registry=registry, mlflow_enabled=False,
                                       retry_failed=False),
-                      cfg.models.enabled, cfg.models.params)
+                      cfg.models.enabled, params)
         return
 
     if args.collect_only:
         result = collect(cfg, models=cfg.models.enabled, registry=registry,
-                         tuned_params=cfg.models.params)
+                         tuned_params=params)
         print("assembled from checkpoints (nothing was run)")
         _summarise(result)
         return
@@ -132,22 +143,23 @@ def main() -> None:
                              force=cfg.models.enabled if args.force else ())
     print(f"device: {runner.device}  n_jobs={cfg.run.n_jobs}")
     print(f"models: {', '.join(cfg.models.enabled)}")
-    _print_progress(runner, cfg.models.enabled, cfg.models.params)
+    _print_progress(runner, cfg.models.enabled, params)
     print()
 
-    params = dict(cfg.models.params)
+    budget = dict(saved_budget)
     if args.tune:
-        print(f"tuning: {cfg.tuning.budget_trials} trials per tunable model, "
-              f"0 for zero-shot")
+        print(f"tuning: {cfg.tuning.budget_trials} trials per model with a "
+              f"search space, 0 for the rest")
         tuned = tune_all(panel, cfg, cfg.models.enabled, registry=registry)
         for name in cfg.models.enabled:
             print(f"  {name:18s} budget={tuned.budget[name]:3d}  "
                   f"best={tuned.best[name] or '-'}")
-        params = {name: {**params.get(name, {}), **tuned.best.get(name, {})}
+        params = {name: {**cfg.models.params.get(name, {}), **tuned.best.get(name, {})}
                   for name in cfg.models.enabled}
+        budget.update(tuned.budget)
         print(f"  trials -> {tuned.path}\n")
 
-    result = runner.run(panel, tuned_params=params)
+    result = runner.run(panel, tuned_params=params, tuning_budget=budget)
     _summarise(result)
     for name, reason in skipped:
         print(f"NOTE: {name} was skipped ({reason})")
