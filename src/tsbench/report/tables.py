@@ -36,9 +36,17 @@ def to_latex(frame: pd.DataFrame, caption: str, label: str,
         if escaped[column].dtype == object:
             escaped[column] = escaped[column].map(_escape)
 
+    index_name = escaped.index.name
+    escaped.index.name = None
+
     body = escaped.to_latex(caption=_escape(caption), label=label,
                             float_format=float_format, escape=False,
                             position="htbp")
+    # pandas leaves the body flush left and spends a whole header row on the
+    # index name; centre the float and fold that name into the header.
+    body = body.replace("\\begin{table}[htbp]\n", "\\begin{table}[htbp]\n\\centering\n", 1)
+    if index_name:
+        body = body.replace("\\toprule\n &", f"\\toprule\n{index_name} &", 1)
     if fit_width:
         body = body.replace(r"\begin{tabular}",
                             "\\resizebox{\\linewidth}{!}{%\n\\begin{tabular}")
