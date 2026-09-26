@@ -355,3 +355,147 @@ def test_declared_space_is_empty_for_a_zero_shot_model(config_dict):
     cfg = Config.from_dict(config_dict)
 
     assert declared_space(default().get("chronos2"), cfg) == {}
+
+
+# --- the cardinality ladder ----------------------------------------------------
+
+def _rung(n, models, seed=0):
+    """A finished rung: per-series MASE rows for 2 folds x 2 repeats x 2
+    horizons, timings shaped like the real table, metadata with n_series."""
+    rng = np.random.default_rng(seed + n)
+    ids = [f"S{i:05d}" for i in range(n)]
+    metric_rows, timing_rows = [], []
+    for model, family, level, fit, predict in models:
+        for uid in ids:
+            base = rng.lognormal(np.log(level), 0.3)
+            for fold in range(2):
+                for repeat in range(2):
+                    for horizon in (4, 13):
+                        metric_rows.append({
+                            "model": model, "family": family, "fold": fold,
+                            "repeat": repeat, "horizon": horizon, "unique_id": uid,
+                            "metric": "MASE", "value": base * (1 + 0.1 * (horizon == 13)),
+                        })
+                        metric_rows.append({**metric_rows[-1], "metric": "RMSSE",
+                                            "value": base * 0.9})
+        for fold in range(2):
+            for repeat in range(2):
+                for horizon in (4, 13):
+                    timing_rows.append({
+                        "model": model, "family": family, "fold": fold,
+                        "repeat": repeat, "horizon": horizon, "status": "ok",
+                        "fit_seconds": fit, "predict_seconds": predict,
+                        "fit_reused": horizon == 13, "n_series": n,
+                    })
+    return {
+        "path": f"results/fake-n{n}",
+        "meta": {"config": {"sampling": {"n_series": n}, "protocol": {"horizons": [4, 13]}},
+                 "git_commit": "abc123", "progress": {}},
+        "metrics": pd.DataFrame(metric_rows),
+        "timings": pd.DataFrame(timing_rows),
+    }
+
+
+@pytest.fixture
+def ladder():
+    """A local model whose accuracy does not move with N, a global one that
+    improves as N grows, and a zero-shot one that only jitters."""
+    from tsbench.report.scaling import scaling_table
+
+    rungs = {}
+    for n in (500, 1000, 2000):
+        rungs[n] = _rung(n, [
+            ("steady", "local", 1.00, 20.0 * n / 1000, 1.0 * n / 1000),
+            ("learner", "global", 1.20 * (1000 / n) ** 0.25, 60.0, 0.5 * n / 1000),
+            ("zeroshot", "foundation", 1.05, 0.1, 2.0 * n / 1000),
+        ])
+    return rungs, scaling_table(rungs, band=True, n_boot=50)
+
+
+def test_scaling_table_normalises_compute_to_1k_series(ladder):
+    """The cost table measures the whole rung; the per-1k column has to divide
+    that by the rung's size or the curve just restates N."""
+    _, table = ladder
+
+    steady = table.xs("steady", level="model")
+    # a per-series model costs the same per 1k series at every N
+    assert steady["per1k_s_h4"].round(6).nunique() == 1
+    assert steady.loc[2000, "run_s_h4"] == pytest.approx(42.0)
+    assert steady.loc[2000, "per1k_s_h4"] == pytest.approx(21.0)
+
+    learner = table.xs("learner", level="model")
+    # one fit amortised over more series: per-1k compute falls with N
+    assert learner["per1k_s_h4"].is_monotonic_decreasing
+
+
+def test_scaling_table_band_brackets_the_median(ladder):
+    _, table = ladder
+    assert (table["MASE_h4_lo"] <= table["MASE_h4"]).all()
+    assert (table["MASE_h4"] <= table["MASE_h4_hi"]).all()
+    # a wider sample gives a tighter interval on its median
+    zeroshot = table.xs("zeroshot", level="model")
+    widths = zeroshot["MASE_h4_hi"] - zeroshot["MASE_h4_lo"]
+    assert widths.loc[2000] < widths.loc[500]
+
+
+def test_crossovers_report_the_first_rung_below_the_reference(ladder):
+    from tsbench.report.scaling import crossovers
+
+    _, table = ladder
+    steady_level = {4: float(table.loc[("steady", 1000), "MASE_h4"]),
+                    13: float(table.loc[("steady", 1000), "MASE_h13"])}
+    cross = crossovers(table, steady_level, horizons=(4, 13))
+
+    learner = cross.loc[("learner", 4)]
+    learner_curve = table.xs("learner", level="model")["MASE_h4"]
+    below = learner_curve.index[learner_curve < steady_level[4]]
+    if len(below):
+        assert learner.first_n_below == below[0]
+    else:
+        assert pd.isna(learner.first_n_below)
+        assert learner.max_n == 2000
+    # a model that never dips under the line says so rather than guessing
+    assert pd.isna(cross.loc[("zeroshot", 4), "first_n_below"])
+    assert cross.loc[("zeroshot", 4), "gap_at_max_pct"] > 0
+
+
+def test_noise_band_is_the_zero_shot_spread_across_rungs(ladder):
+    from tsbench.report.scaling import noise_band
+
+    _, table = ladder
+    lo, hi = noise_band(table, "zeroshot", "MASE", 4)
+    values = table.xs("zeroshot", level="model")["MASE_h4"]
+    assert (lo, hi) == (values.min(), values.max())
+    assert noise_band(table, "absent", "MASE", 4) is None
+
+
+def test_scaling_figure_has_a_panel_pair_per_horizon(ladder, tmp_path):
+    from tsbench.report.scaling import scaling_figure
+
+    _, table = ladder
+    fig = scaling_figure(table, horizons=(4, 13), reference={4: 1.0, 13: 1.1},
+                         reference_label="steady at N=1,000", noise_model="zeroshot")
+    assert len(fig.axes) == 4
+    assert fig.axes[0].get_xscale() == "log"
+    # shared x: only the bottom row carries tick labels, one per rung
+    fig.canvas.draw()
+    bottom_left = fig.axes[2]
+    assert [t.get_text() for t in bottom_left.get_xticklabels()] == ["500", "1,000", "2,000"]
+    written = save_figure(fig, tmp_path / "F9")
+    assert all(p.exists() for p in written)
+    plt.close(fig)
+
+
+def test_ladder_warnings_name_mixed_builds_and_missing_models():
+    from tsbench.report.scaling import ladder_warnings
+
+    a = _rung(500, [("steady", "local", 1.0, 1.0, 1.0)])
+    b = _rung(1000, [("steady", "local", 1.0, 1.0, 1.0), ("learner", "global", 1.0, 1.0, 1.0)])
+    b["meta"]["git_commit"] = "fff999"
+    b["meta"]["progress"] = {"learner": {"expected": 5, "complete": 4, "failed": 1}}
+
+    notes = ladder_warnings({500: a, 1000: b})
+
+    assert any("different builds" in n for n in notes)
+    assert any("N=500 lacks learner" in n for n in notes)
+    assert any("learner: 4/5 units, 1 failed" in n for n in notes)

@@ -334,6 +334,7 @@ cluster-side setup for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU)
 | `20_run_global` | global tier |
 | `30_run_foundation` | foundation tier (incl. weight-cache warm-up) |
 | `40_assemble` | combine all tiers' checkpoints, statistics, CD diagrams |
+| `50_run_scaling` | the cardinality ladder: pool, nested samples, four rungs, T9/F9 (see "Scaling study") |
 
 Tiers share checkpoints, so notebooks run in any order, independently, or on
 two clusters in parallel (e.g. `30` on a second cluster while `10`/`20` run on
@@ -379,6 +380,53 @@ The T4 has no bf16; `preferred_dtype()` falls Chronos-2 back to float32 there.
 Run order in the notebook: smoke test on two baselines, then the five
 foundation adapters one at a time (each failure is recorded and retried after
 the fix), then the full run — re-run that cell as many times as it takes.
+
+## Scaling study
+
+The cardinality curve (§6.5) runs four example models — `prophet`, `nhits`,
+`dlinear`, `chronos2` — over nested samples of 500, 1,000, 2,000 and 4,000
+series. Nested means S₅₀₀ ⊂ S₁₀₀₀ ⊂ S₂₀₀₀ ⊂ S₄₀₀₀: a curve whose points do not
+share series measures the draw as much as the scaling. The N=1,000 rung *is*
+the frozen benchmark sample, never rewritten.
+
+```bash
+python scripts/build_scaling_pool.py                 # eligible universe -> data/eligible_pool.csv
+python scripts/build_scaling_ladder.py               # samples under data/scaling/, configs under configs/scaling/
+python scripts/run_benchmark.py --config configs/scaling/n500.yaml \
+    --run-name spins-weekly-scaling-n500 --models prophet,nhits,dlinear,chronos2
+python scripts/build_scaling_report.py --reference results/spins-weekly-v1   # T9, F9, crossover
+```
+
+How the pieces fit:
+
+- **Pool.** `build_scaling_pool.py` profiles the whole panel under the
+  protocol and writes the stratum-labelled eligible set (7,125 of 7,473
+  series here). The ladder can climb no higher than that.
+- **Ladder.** `nested_ladder()` thins the anchor downwards and grows it
+  upwards, drawing each rung's shortfall per stratum from what the rung below
+  has not taken. Nesting and exact stratum proportionality cannot both hold;
+  nesting wins, and the drift is small (intermittent share 5.6–5.9% on every
+  rung against the pool's 5.8%). The subset relations are asserted, not
+  assumed, and every rung's series set is recorded as `ids_digest` in
+  `configs/scaling/manifest.json`, so a ladder rebuilt on the cluster can be
+  checked against the one built here.
+- **Per-rung configs** differ from the base in `n_series` and `sample_path`
+  only. `sample_path` is in neither key and `n_series` is in both, so each
+  rung has its own checkpoint namespace and reads its sample as frozen.
+- **Per-rung runs.** Each rung runs as `spins-weekly-scaling-n<N>` so the
+  paper's `spins-weekly-v1` checkpoints are never touched. `load_best` reads
+  `results/<run.name>/tuning_best.json`, so the notebook copies the N=1,000
+  search's file into every rung: tuned once, applied everywhere, identical
+  result keys across the ladder. The N=1,000 rung is re-measured rather than
+  reused so the curve is one build end to end.
+- **Report.** `build_scaling_report.py` reads whichever rungs have finished
+  and writes `results/scaling/`: T9 (median MASE/RMSSE and compute per 1,000
+  series by model × N), F9 (accuracy and per-1k compute against N, log axes,
+  bootstrap intervals over series), and `crossover.csv` — the first N at which
+  each model beats the reference model's paper-run median, or "no crossover up
+  to N", which is a result rather than a gap. The zero-shot model fits
+  nothing, so its spread across rungs is pure sampling noise and is drawn as
+  the band a trained model has to clear.
 
 ## Environment notes
 

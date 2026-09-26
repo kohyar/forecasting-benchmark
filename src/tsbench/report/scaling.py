@@ -1,0 +1,280 @@
+"""The cardinality ladder: how accuracy and compute move with the series count.
+
+Each rung is a separate run over a nested sample, so the frames arrive one per
+run and are joined here on n_series. The zero-shot model on the ladder never
+fits anything, so the movement of its median across rungs is sampling noise
+alone - that spread is the band a trained model has to clear before its own
+movement means something.
+"""
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.ticker import FuncFormatter, NullFormatter, NullLocator
+
+from tsbench.report.style import (
+    FAMILIES,
+    GRID,
+    INK,
+    INK_MUTED,
+    apply_paper_style,
+    family_style,
+)
+from tsbench.report.tables import cost_per_1k_table
+
+
+def load_ladder(run_dirs) -> dict:
+    """{n_series: rung} for every finished run directory, smallest first.
+
+    A rung is finished when the runner wrote its metadata; a directory that
+    holds only checkpoints is skipped and named, so a partial ladder still
+    reports.
+    """
+    rungs = {}
+    for run_dir in map(Path, run_dirs):
+        meta_path = run_dir / "run_metadata.json"
+        if not meta_path.exists():
+            print(f"  skipping {run_dir}: no run_metadata.json yet (run not finished)")
+            continue
+        meta = json.loads(meta_path.read_text())
+        n = int(meta["config"]["sampling"]["n_series"])
+        if n in rungs:
+            raise ValueError(f"two runs claim N={n}: {rungs[n]['path']} and {run_dir}")
+        rungs[n] = {
+            "path": run_dir,
+            "meta": meta,
+            "metrics": pd.read_parquet(run_dir / "metrics.parquet"),
+            "timings": pd.read_parquet(run_dir / "timings.parquet"),
+        }
+    return dict(sorted(rungs.items()))
+
+
+def ladder_warnings(rungs: dict) -> list:
+    """What would make the curve lie: rungs from different builds, models missing
+    from some rungs, or units that failed."""
+    notes = []
+    commits = {n: (r["meta"].get("git_commit") or "")[:8] for n, r in rungs.items()}
+    if len(set(commits.values())) > 1:
+        notes.append("rungs were measured by different builds: "
+                     + ", ".join(f"N={n} {c or '?'}" for n, c in commits.items()))
+    rosters = {n: set(r["metrics"]["model"].unique()) for n, r in rungs.items()}
+    everyone = set.union(*rosters.values()) if rosters else set()
+    for n, roster in rosters.items():
+        if roster != everyone:
+            notes.append(f"N={n} lacks {', '.join(sorted(everyone - roster))}")
+    for n, r in rungs.items():
+        for model, p in r["meta"].get("progress", {}).items():
+            if p.get("complete", 0) < p.get("expected", 0) or p.get("failed"):
+                notes.append(f"N={n} {model}: {p['complete']}/{p['expected']} units, "
+                             f"{p.get('failed', 0)} failed")
+    return notes
+
+
+def bootstrap_median_band(scope: pd.DataFrame, n_boot: int = 300, seed: int = 0,
+                          level: float = 0.95) -> tuple:
+    """Interval for the median when series, not rows, are the sampling unit.
+
+    A series contributes one row per fold and repeat, and those rows share its
+    scale; resampling rows would treat them as independent and shrink the band.
+    """
+    wide = scope.pivot_table(index="unique_id", columns=["fold", "repeat"],
+                             values="value", aggfunc="first").to_numpy()
+    if wide.shape[0] < 2:
+        value = np.nanmedian(wide) if wide.size else np.nan
+        return value, value
+    rng = np.random.default_rng(seed)
+    draws = rng.integers(0, wide.shape[0], size=(n_boot, wide.shape[0]))
+    medians = np.array([np.nanmedian(wide[idx].ravel()) for idx in draws])
+    tail = (1 - level) / 2
+    return float(np.quantile(medians, tail)), float(np.quantile(medians, 1 - tail))
+
+
+def scaling_table(rungs: dict, metrics=("MASE", "RMSSE"), horizons=(4, 13),
+                  band: bool = True, n_boot: int = 300) -> pd.DataFrame:
+    """T9: one row per (model, n_series) - median accuracy, the compute of one
+    fit plus one predict over that rung, and the same compute per 1,000 series.
+
+    `cost_per_1k_table` measures the whole sample it was given; dividing by the
+    rung's size is what makes the column comparable across rungs. Whether that
+    figure falls with N is the amortisation argument for global models.
+    """
+    rows = []
+    for n, rung in rungs.items():
+        m = rung["metrics"]
+        cost = cost_per_1k_table(rung["timings"])
+        for model in sorted(m["model"].unique()):
+            mine = m[m["model"] == model]
+            row = {"model": model, "n_series": n,
+                   "family": mine["family"].iloc[0] if "family" in mine else ""}
+            for metric in metrics:
+                for h in horizons:
+                    scope = mine[(mine["metric"] == metric) & (mine["horizon"] == h)]
+                    row[f"{metric}_h{h}"] = scope["value"].median()
+                    if band and metric == metrics[0]:
+                        lo, hi = bootstrap_median_band(scope, n_boot=n_boot)
+                        row[f"{metric}_h{h}_lo"], row[f"{metric}_h{h}_hi"] = lo, hi
+            if model in cost.index:
+                row["fit_s"] = cost.loc[model, "fit_s"]
+                for h in horizons:
+                    run_s = cost.loc[model, f"per1k_s_h{h}"]
+                    row[f"run_s_h{h}"] = run_s
+                    row[f"per1k_s_h{h}"] = run_s * 1000.0 / n
+            rows.append(row)
+    return pd.DataFrame(rows).set_index(["model", "n_series"]).sort_index()
+
+
+def reference_levels(metrics: pd.DataFrame, model: str, metric: str = "MASE",
+                     horizons=(4, 13)) -> dict:
+    """{horizon: median} of one model from another run - the level the ladder
+    is read against, typically the best local model at the paper's N."""
+    scope = metrics[(metrics["model"] == model) & (metrics["metric"] == metric)]
+    return {h: float(scope[scope["horizon"] == h]["value"].median())
+            for h in horizons if (scope["horizon"] == h).any()}
+
+
+def crossovers(table: pd.DataFrame, reference: dict, metric: str = "MASE",
+               horizons=(4, 13)) -> pd.DataFrame:
+    """Where each model first beats the reference level, if it does at all.
+
+    "No crossover up to N" is a result, not a gap: it says the reference holds
+    its lead over the whole range the panel can test.
+    """
+    rows = []
+    for model, group in table.groupby(level="model"):
+        g = group.droplevel("model").sort_index()
+        for h in horizons:
+            column = f"{metric}_h{h}"
+            level = reference.get(h)
+            if column not in g or level is None:
+                continue
+            below = g.index[g[column] < level]
+            last = g[column].iloc[-1]
+            rows.append({
+                "model": model, "horizon": h, "reference": level,
+                "first_n_below": int(below[0]) if len(below) else None,
+                "max_n": int(g.index[-1]), "at_max_n": last,
+                "gap_at_max_pct": (last / level - 1.0) * 100.0,
+            })
+    return pd.DataFrame(rows).set_index(["model", "horizon"])
+
+
+def noise_band(table: pd.DataFrame, model: str, metric: str, horizon: int) -> tuple:
+    """Spread of a zero-shot model's median across rungs: with no fitting, the
+    only thing that moves it is which series were drawn."""
+    if model not in table.index.get_level_values("model"):
+        return None
+    values = table.xs(model, level="model")[f"{metric}_h{horizon}"].dropna()
+    return (float(values.min()), float(values.max())) if len(values) else None
+
+
+def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
+                   reference: dict | None = None, reference_label: str = "",
+                   noise_model: str = "chronos2"):
+    """F9: accuracy (top) and compute per 1,000 series (bottom) against series
+    count, one column per horizon. Series count doubles per rung, so the axis
+    is log2 with a tick at each rung and nothing between.
+    """
+    apply_paper_style()
+    sizes = sorted(table.index.get_level_values("n_series").unique())
+    fig, axes = plt.subplots(2, len(horizons), figsize=(3.7 * len(horizons), 5.8),
+                             sharex=True)
+    axes = np.asarray(axes).reshape(2, len(horizons))
+    families = set()
+    band_handle = reference_handle = None
+
+    for col, h in enumerate(horizons):
+        top, bottom = axes[0, col], axes[1, col]
+        score, cost = f"{metric}_h{h}", f"per1k_s_h{h}"
+
+        # both are explained in the legend: text on the axes lands on the line
+        # labels whenever the band and the reference level sit close, which is
+        # exactly the case the figure is for
+        band = noise_band(table, noise_model, metric, h)
+        if band and band[1] > band[0]:
+            band_handle = top.axhspan(*band, color=family_style("foundation")["color"],
+                                      alpha=0.12, linewidth=0, zorder=0,
+                                      label=f"{noise_model} spread across rungs "
+                                            "(sampling noise)")
+        if reference and h in reference:
+            reference_handle = top.axhline(reference[h], color=INK_MUTED, linestyle="--",
+                                           linewidth=1.0, zorder=1,
+                                           label=reference_label or "reference")
+
+        ends_top, ends_bottom = [], []
+        for model, group in table.groupby(level="model"):
+            g = group.droplevel("model").sort_index()
+            family = g["family"].iloc[0] if "family" in g else ""
+            families.add(family)
+            style = family_style(family)
+            x = g.index.to_numpy(dtype=float)
+            for ax, column, ends in ((top, score, ends_top), (bottom, cost, ends_bottom)):
+                if column not in g:
+                    continue
+                y = g[column].to_numpy(dtype=float)
+                keep = ~np.isnan(y)
+                if not keep.any():
+                    continue
+                ax.plot(x[keep], y[keep], marker=style["marker"], color=style["color"],
+                        markersize=5, linewidth=1.2, markeredgecolor="white",
+                        markeredgewidth=0.5, zorder=3)
+                if ax is top and f"{score}_lo" in g:
+                    ax.fill_between(x[keep], g[f"{score}_lo"].to_numpy()[keep],
+                                    g[f"{score}_hi"].to_numpy()[keep],
+                                    color=style["color"], alpha=0.15, linewidth=0, zorder=2)
+                ends.append((model, x[keep][-1], y[keep][-1]))
+
+        top.set_xscale("log", base=2)
+        bottom.set_yscale("log")
+        top.set_xlim(sizes[0] / 1.3, sizes[-1] * 2.4)
+        for ax in (top, bottom):
+            ax.set_xticks(sizes)
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(round(v)):,}"))
+            ax.xaxis.set_minor_locator(NullLocator())
+            ax.xaxis.set_minor_formatter(NullFormatter())
+            ax.grid(axis="both", color=GRID, linewidth=0.6)
+            ax.set_axisbelow(True)
+        top.set_title(f"horizon {h}", loc="left")
+        bottom.set_xlabel("series in the sample (log scale)")
+        if col == 0:
+            top.set_ylabel(f"median {metric}  (lower is better)")
+            bottom.set_ylabel("compute seconds per 1,000 series\n(one fit + one predict, log scale)")
+        _label_line_ends(top, ends_top)
+        _label_line_ends(bottom, ends_bottom)
+
+    handles = []
+    for family in FAMILIES:
+        if family in families:
+            style = family_style(family)
+            handles.append(plt.Line2D([], [], color=style["color"], marker=style["marker"],
+                                      markersize=5, linewidth=1.2, label=family,
+                                      markeredgecolor="white", markeredgewidth=0.5))
+    handles += [h for h in (reference_handle, band_handle) if h is not None]
+    # the two explanatory entries are long, so no panel has room for the
+    # legend without covering its own axis; it goes under the figure instead
+    fig.suptitle("Accuracy and compute against series count", x=0.01, ha="left",
+                 fontsize=10)
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7.5,
+               bbox_to_anchor=(0.5, 0.0), columnspacing=1.4, handlelength=2.2)
+    return fig
+
+
+def _label_line_ends(ax, ends, min_gap_pt: float = 9.0) -> None:
+    """Name each line at its right end, nudging labels apart where two lines
+    finish close together - on the accuracy panel they often do."""
+    if not ends:
+        return
+    ax.figure.canvas.draw()
+    to_pt = 72.0 / ax.figure.dpi
+    order = sorted(ends, key=lambda e: ax.transData.transform((e[1], e[2]))[1])
+    placed = []
+    for model, x, y in order:
+        pixel_y = ax.transData.transform((x, y))[1] * to_pt
+        if placed and pixel_y - placed[-1] < min_gap_pt:
+            pixel_y = placed[-1] + min_gap_pt
+        placed.append(pixel_y)
+        offset = pixel_y - ax.transData.transform((x, y))[1] * to_pt
+        ax.annotate(model, (x, y), textcoords="offset points", xytext=(6, offset),
+                    fontsize=7.5, color=INK, va="center", zorder=4)
