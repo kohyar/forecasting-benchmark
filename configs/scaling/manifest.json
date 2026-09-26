@@ -1,0 +1,44 @@
+{
+  "seed": 42,
+  "anchor": "data/sample_series.csv",
+  "pool": "data/eligible_pool.csv",
+  "pool_size": 7125,
+  "rungs": {
+    "500": {
+      "n_series": 500,
+      "sample_path": "data/scaling/sample_series_500.csv",
+      "sample_key": "6bc43b32b551010c",
+      "config_hash": "a38bf96ee6809f78",
+      "ids_digest": "218fa14921bb02c4",
+      "strata": 20,
+      "intermittent": 28
+    },
+    "1000": {
+      "n_series": 1000,
+      "sample_path": "data/sample_series.csv",
+      "sample_key": "cfa6aca1c7a6df8f",
+      "config_hash": "795e6e71d58953f1",
+      "ids_digest": "6df2469c8014400f",
+      "strata": 22,
+      "intermittent": 59
+    },
+    "2000": {
+      "n_series": 2000,
+      "sample_path": "data/scaling/sample_series_2000.csv",
+      "sample_key": "4f93cf97d52c739c",
+      "config_hash": "cf9843ca8dfe43f0",
+      "ids_digest": "d67dbe40a1b6b6f9",
+      "strata": 23,
+      "intermittent": 115
+    },
+    "4000": {
+      "n_series": 4000,
+      "sample_path": "data/scaling/sample_series_4000.csv",
+      "sample_key": "5e57642e19d76f8d",
+      "config_hash": "27542a908fe3c1c3",
+      "ids_digest": "f4e330f0cca2293c",
+      "strata": 25,
+      "intermittent": 232
+    }
+  }
+}

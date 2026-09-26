@@ -165,3 +165,78 @@ def test_loading_a_sample_built_from_another_config_is_flagged(tmp_path, populat
 
     with pytest.raises(ValueError, match="config_hash"):
         load_sample(path, expect=other)
+
+
+# --- the nested ladder the cardinality study runs on -------------------------
+
+def _ladder_inputs(population, config_dict, anchor_n: int):
+    """Pool and anchor in the shape build_scaling_ladder.py hands to the sampler."""
+    config_dict["sampling"]["n_series"] = anchor_n
+    cfg = Config.from_dict(config_dict)
+    return label_strata(population, cfg), stratified_sample(population, cfg), cfg
+
+
+def test_ladder_rungs_nest_and_the_anchor_rung_is_the_anchor(population, config_dict):
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+    rungs = nested_ladder(pool, anchor, sizes=(100, 200, 400, 800), seed=cfg.run.seed)
+
+    assert [len(rungs[n]) for n in (100, 200, 400, 800)] == [100, 200, 400, 800]
+    ids = {n: set(r["unique_id"]) for n, r in rungs.items()}
+    assert ids[100] < ids[200] < ids[400] < ids[800]
+    assert ids[200] == set(anchor["unique_id"])
+
+
+def test_ladder_keeps_stratum_shares_close_to_the_pool(population, config_dict):
+    """Nesting inherits the anchor's rounding, so proportionality is best-effort
+    above and below it - but it must stay close, or the curve compares samples
+    of different character."""
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+    rungs = nested_ladder(pool, anchor, sizes=(100, 200, 400, 800), seed=cfg.run.seed)
+
+    want = pool["stratum"].value_counts(normalize=True)
+    for n, rung in rungs.items():
+        got = rung["stratum"].value_counts(normalize=True).reindex(want.index).fillna(0)
+        assert (got - want).abs().max() <= 0.02, f"stratum drift at N={n}"
+
+
+def test_ladder_is_deterministic(population, config_dict):
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+    first = nested_ladder(pool, anchor, sizes=(100, 200, 400), seed=cfg.run.seed)
+    second = nested_ladder(pool, anchor, sizes=(100, 200, 400), seed=cfg.run.seed)
+
+    for n in (100, 200, 400):
+        pd.testing.assert_frame_equal(first[n], second[n])
+
+
+def test_ladder_refuses_an_anchor_outside_the_pool(population, config_dict):
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+    pool = pool[pool["unique_id"] != anchor["unique_id"].iloc[0]]
+
+    with pytest.raises(ValueError, match="outside the pool"):
+        nested_ladder(pool, anchor, sizes=(100, 200, 400), seed=cfg.run.seed)
+
+
+def test_ladder_refuses_a_rung_larger_than_the_pool(population, config_dict):
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+
+    with pytest.raises(ValueError, match="exceeds the pool"):
+        nested_ladder(pool, anchor, sizes=(200, 5000), seed=cfg.run.seed)
+
+
+def test_ladder_requires_the_anchor_size_among_the_rungs(population, config_dict):
+    from tsbench.data.sampling import nested_ladder
+
+    pool, anchor, cfg = _ladder_inputs(population, config_dict, 200)
+
+    with pytest.raises(ValueError, match="anchor"):
+        nested_ladder(pool, anchor, sizes=(100, 400), seed=cfg.run.seed)
