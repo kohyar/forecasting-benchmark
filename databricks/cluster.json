@@ -1,0 +1,23 @@
+{
+  "cluster_name": "tsbench-t4",
+  "spark_version": "17.3.x-gpu-ml-scala2.13",
+  "node_type_id": "Standard_NC8as_T4_v3",
+  "driver_node_type_id": "Standard_NC8as_T4_v3",
+  "num_workers": 0,
+  "data_security_mode": "SINGLE_USER",
+  "single_user_name": "iman.kohyarnejad@vancereaviejunction.onmicrosoft.com",
+  "runtime_engine": "STANDARD",
+  "autotermination_minutes": 120,
+  "spark_conf": {
+    "spark.master": "local[*, 4]",
+    "spark.databricks.cluster.profile": "singleNode"
+  },
+  "custom_tags": {
+    "ResourceClass": "SingleNode",
+    "project": "forecasting-benchmark"
+  },
+  "azure_attributes": {
+    "availability": "ON_DEMAND_AZURE",
+    "first_on_demand": 1
+  }
+}

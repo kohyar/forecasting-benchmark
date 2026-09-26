@@ -324,7 +324,18 @@ something that could change eligibility changes.
 ## Databricks
 
 `configs/databricks-t4.yaml` plus the `databricks/` notebooks are the
-cluster-side setup for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU):
+cluster-side setup for a single-node `Standard_NC8as_T4_v3` on 17.3 LTS ML (GPU).
+`databricks/cluster.json` is that cluster's definition — paste it into
+*Compute → Create → JSON*, or create it from the CLI:
+
+```bash
+databricks clusters create --json @databricks/cluster.json --profile <your-user-profile>
+```
+
+Single-user access mode is what lets the notebooks read the Volume; on-demand
+rather than spot keeps the timings comparable between runs. The cluster owns
+nothing: results and the sample live on the Volume, the code in Repos, and the
+libraries are reinstalled by `01_install` after every start.
 
 | Notebook | Purpose |
 |---|---|
