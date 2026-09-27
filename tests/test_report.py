@@ -576,3 +576,15 @@ def test_paired_tests_separate_a_learner_from_a_model_that_cannot_move(ladder):
     against = paired.xs("N=2,000 vs steady", level="comparison")
     assert against.loc[("steady", 4), "p_value"] == 1.0
     assert set(against.index.get_level_values("model")) == {"steady", "learner", "zeroshot"}
+
+
+def test_cost_table_takes_the_trial_count_from_the_recorded_budget(timings):
+    """Checkpoints from a build that applied the budget uniformly annotate every
+    row with 20 trials; the recorded budget says what was actually searched."""
+    with_annotation = cost_per_1k_table(timings)
+    assert with_annotation.loc["cheap", "tuning_trials"] == 20
+
+    corrected = cost_per_1k_table(timings, budget={"steady": 20})
+    assert corrected.loc["steady", "tuning_trials"] == 20
+    assert corrected.loc["cheap", "tuning_trials"] == 0
+    assert corrected["tuning_trials"].dtype.kind == "i"

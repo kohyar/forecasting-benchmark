@@ -95,12 +95,17 @@ def ranking_flip_table(metrics: pd.DataFrame, series_ids, horizon: int,
     return out.sort_values(f"rank_{first}")
 
 
-def cost_per_1k_table(timings: pd.DataFrame) -> pd.DataFrame:
+def cost_per_1k_table(timings: pd.DataFrame, budget: dict | None = None) -> pd.DataFrame:
     """What one run of a model over 1k series costs: one fit plus one predict.
 
     Folds and repeats measure that same work several times over, so both are
     collapsed with a median rather than summed - a sum answers what the
     benchmark cost, which is a different number and belongs in the appendix.
+
+    `budget` is the trial count each model actually spent, from the run's
+    tuning_best.json. The timing rows carry a tuning_trials annotation too, but
+    checkpoints written by a build that applied the budget uniformly still say
+    20 for models with nothing to search; the recorded budget is the truth.
     """
     t = timings[timings["status"] == "ok"] if "status" in timings.columns else timings
 
@@ -119,6 +124,8 @@ def cost_per_1k_table(timings: pd.DataFrame) -> pd.DataFrame:
                         ("n_params", "max"), ("tuning_trials", "first")]:
         if column in t.columns:
             out[column] = t.groupby("model")[column].agg(how)
+    if budget is not None:
+        out["tuning_trials"] = [int(budget.get(model, 0)) for model in out.index]
     return out
 
 

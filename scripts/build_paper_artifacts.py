@@ -82,20 +82,21 @@ def main() -> None:
           "Median accuracy by model and horizon.", "tab:main-accuracy",
           fit_width=True)
 
-    cost = cost_per_1k_table(timings)
-    _emit(cost, out_dir, "T8_cost",
-          "Compute cost of running each model once over 1,000 series "
-          "(one fit plus one predict), and as a multiple of the cheapest model.",
-          "tab:cost", float_format="%.3f", fit_width=True)
-
     # What each model actually spent. The timings carry it too, but a run
     # assembled from checkpoints predates any later tuning, so the recorded
-    # budget is the one to trust.
+    # budget is the one to trust - in T8's column as much as in T4's.
     tuning_path = run_dir / "tuning_best.json"
     budget = (json.loads(tuning_path.read_text()).get("budget", {})
               if tuning_path.exists() else {})
     if not budget:
-        print("  NOTE: no tuning_best.json - T4 will report every model as untuned")
+        print("  NOTE: no tuning_best.json - T4 will report every model as untuned "
+              "and T8 will show the trials annotation the timings carry")
+
+    cost = cost_per_1k_table(timings, budget=budget or None)
+    _emit(cost, out_dir, "T8_cost",
+          "Compute cost of running each model once over 1,000 series "
+          "(one fit plus one predict), and as a multiple of the cheapest model.",
+          "tab:cost", float_format="%.3f", fit_width=True)
 
     registry = default_registry()
     roster = model_roster_table(registry, models, versions=meta.get("packages"),
