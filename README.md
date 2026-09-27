@@ -431,13 +431,22 @@ How the pieces fit:
   result keys across the ladder. The N=1,000 rung is re-measured rather than
   reused so the curve is one build end to end.
 - **Report.** `build_scaling_report.py` reads whichever rungs have finished
-  and writes `results/scaling/`: T9 (median MASE/RMSSE and compute per 1,000
-  series by model × N), F9 (accuracy and per-1k compute against N, log axes,
-  bootstrap intervals over series), and `crossover.csv` — the first N at which
-  each model beats the reference model's paper-run median, or "no crossover up
-  to N", which is a result rather than a gap. The zero-shot model fits
-  nothing, so its spread across rungs is pure sampling noise and is drawn as
-  the band a trained model has to clear.
+  and writes `results/scaling/`. Two readings of the same runs:
+  - *Primary, the fixed evaluation set.* Every rung is scored on the series
+    all rungs share (the smallest rung, with nesting). A local or zero-shot
+    model produces the same forecasts for those series at every N, so its
+    line is flat by construction; a global model's movement is what more
+    training series bought, on the same held-out series, paired. T9 and F9
+    (accuracy plus per-1k compute against N, log axes, bootstrap intervals
+    over series) and `crossover.csv` — the first N at which each model beats
+    the reference model's median *on those same series*, or "no crossover up
+    to N", which is a result rather than a gap.
+  - *Secondary, each rung's full sample.* T9b and F9b. Rungs are nested but
+    not identical, so composition moves every model; the zero-shot model fits
+    nothing, so its spread across rungs is that effect alone and is drawn as
+    the band a trained model has to clear. A fixed reference line is not
+    drawn here, because it would be read against a different sample at every
+    rung.
 
 ## Environment notes
 

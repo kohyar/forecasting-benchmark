@@ -1,10 +1,18 @@
 """The cardinality ladder: how accuracy and compute move with the series count.
 
 Each rung is a separate run over a nested sample, so the frames arrive one per
-run and are joined here on n_series. The zero-shot model on the ladder never
-fits anything, so the movement of its median across rungs is sampling noise
-alone - that spread is the band a trained model has to clear before its own
-movement means something.
+run and are joined here on n_series. Two readings of the same runs:
+
+- On the **fixed evaluation set** - the series every rung shares, which with
+  nesting is the smallest rung - a local or zero-shot model produces the same
+  forecasts at every N, so only a global model can move. That movement is what
+  more training series bought, on the same held-out series, paired.
+- On the **full sample** of each rung the medians also shift with which series
+  were drawn. The zero-shot model fits nothing, so its spread across rungs is
+  that composition effect alone, and a trained model's movement has to clear
+  it before it means anything.
+
+Compute per 1,000 series always comes from the full rung.
 """
 import json
 from pathlib import Path
@@ -51,6 +59,14 @@ def load_ladder(run_dirs) -> dict:
     return dict(sorted(rungs.items()))
 
 
+def common_series(rungs: dict) -> list:
+    """The series every rung scored - the fixed evaluation set. With a nested
+    ladder that is the smallest rung, but it is intersected rather than
+    assumed, so a rung that lost a series to a failure still lines up."""
+    sets = [set(r["metrics"]["unique_id"].unique()) for r in rungs.values()]
+    return sorted(set.intersection(*sets)) if sets else []
+
+
 def ladder_warnings(rungs: dict) -> list:
     """What would make the curve lie: rungs from different builds, models missing
     from some rungs, or units that failed."""
@@ -92,22 +108,29 @@ def bootstrap_median_band(scope: pd.DataFrame, n_boot: int = 300, seed: int = 0,
 
 
 def scaling_table(rungs: dict, metrics=("MASE", "RMSSE"), horizons=(4, 13),
-                  band: bool = True, n_boot: int = 300) -> pd.DataFrame:
+                  band: bool = True, n_boot: int = 300, series=None) -> pd.DataFrame:
     """T9: one row per (model, n_series) - median accuracy, the compute of one
     fit plus one predict over that rung, and the same compute per 1,000 series.
 
-    `cost_per_1k_table` measures the whole sample it was given; dividing by the
-    rung's size is what makes the column comparable across rungs. Whether that
-    figure falls with N is the amortisation argument for global models.
+    `series` restricts the accuracy medians to those ids (the fixed evaluation
+    set); the compute columns always describe the whole rung, since that is
+    what was run. `cost_per_1k_table` measures the sample it was given, so
+    dividing by the rung's size is what makes the column comparable across
+    rungs - whether it falls with N is the amortisation argument for global
+    models.
     """
+    keep = set(series) if series is not None else None
     rows = []
     for n, rung in rungs.items():
         m = rung["metrics"]
+        if keep is not None:
+            m = m[m["unique_id"].isin(keep)]
         cost = cost_per_1k_table(rung["timings"])
         for model in sorted(m["model"].unique()):
             mine = m[m["model"] == model]
             row = {"model": model, "n_series": n,
-                   "family": mine["family"].iloc[0] if "family" in mine else ""}
+                   "family": mine["family"].iloc[0] if "family" in mine else "",
+                   "eval_series": int(mine["unique_id"].nunique())}
             for metric in metrics:
                 for h in horizons:
                     scope = mine[(mine["metric"] == metric) & (mine["horizon"] == h)]
@@ -126,10 +149,14 @@ def scaling_table(rungs: dict, metrics=("MASE", "RMSSE"), horizons=(4, 13),
 
 
 def reference_levels(metrics: pd.DataFrame, model: str, metric: str = "MASE",
-                     horizons=(4, 13)) -> dict:
+                     horizons=(4, 13), series=None) -> dict:
     """{horizon: median} of one model from another run - the level the ladder
-    is read against, typically the best local model at the paper's N."""
+    is read against, typically the best local model at the paper's N. Pass
+    `series` to take it over the fixed evaluation set, so the line and the
+    curve describe the same series."""
     scope = metrics[(metrics["model"] == model) & (metrics["metric"] == metric)]
+    if series is not None:
+        scope = scope[scope["unique_id"].isin(set(series))]
     return {h: float(scope[scope["horizon"] == h]["value"].median())
             for h in horizons if (scope["horizon"] == h).any()}
 
@@ -171,27 +198,36 @@ def noise_band(table: pd.DataFrame, model: str, metric: str, horizon: int) -> tu
 
 def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
                    reference: dict | None = None, reference_label: str = "",
-                   noise_model: str = "chronos2"):
-    """F9: accuracy (top) and compute per 1,000 series (bottom) against series
-    count, one column per horizon. Series count doubles per rung, so the axis
-    is log2 with a tick at each rung and nothing between.
+                   noise_model: str | None = "chronos2", cost: bool = True,
+                   title: str = "Accuracy and compute against series count",
+                   accuracy_label: str | None = None):
+    """F9: accuracy (top) and, with `cost`, compute per 1,000 series (bottom)
+    against series count, one column per horizon. Series count doubles per
+    rung, so the axis is log2 with a tick at each rung and nothing between.
+
+    On the fixed evaluation set the zero-shot band is a point, so pass
+    `noise_model=None` there; on the full sample a fixed reference line is
+    confounded by composition, so pass `reference=None` there.
     """
     apply_paper_style()
     sizes = sorted(table.index.get_level_values("n_series").unique())
-    fig, axes = plt.subplots(2, len(horizons), figsize=(3.7 * len(horizons), 5.8),
+    n_rows = 2 if cost else 1
+    fig, axes = plt.subplots(n_rows, len(horizons),
+                             figsize=(3.7 * len(horizons), 5.8 if cost else 3.4),
                              sharex=True)
-    axes = np.asarray(axes).reshape(2, len(horizons))
+    axes = np.asarray(axes).reshape(n_rows, len(horizons))
     families = set()
     band_handle = reference_handle = None
 
     for col, h in enumerate(horizons):
-        top, bottom = axes[0, col], axes[1, col]
-        score, cost = f"{metric}_h{h}", f"per1k_s_h{h}"
+        top = axes[0, col]
+        bottom = axes[1, col] if cost else None
+        score, cost_column = f"{metric}_h{h}", f"per1k_s_h{h}"
 
         # both are explained in the legend: text on the axes lands on the line
         # labels whenever the band and the reference level sit close, which is
         # exactly the case the figure is for
-        band = noise_band(table, noise_model, metric, h)
+        band = noise_band(table, noise_model, metric, h) if noise_model else None
         if band and band[1] > band[0]:
             band_handle = top.axhspan(*band, color=family_style("foundation")["color"],
                                       alpha=0.12, linewidth=0, zorder=0,
@@ -209,7 +245,10 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
             families.add(family)
             style = family_style(family)
             x = g.index.to_numpy(dtype=float)
-            for ax, column, ends in ((top, score, ends_top), (bottom, cost, ends_bottom)):
+            panels = [(top, score, ends_top)]
+            if cost:
+                panels.append((bottom, cost_column, ends_bottom))
+            for ax, column, ends in panels:
                 if column not in g:
                     continue
                 y = g[column].to_numpy(dtype=float)
@@ -226,9 +265,9 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
                 ends.append((model, x[keep][-1], y[keep][-1]))
 
         top.set_xscale("log", base=2)
-        bottom.set_yscale("log")
         top.set_xlim(sizes[0] / 1.3, sizes[-1] * 2.4)
-        for ax in (top, bottom):
+        last = bottom if cost else top
+        for ax in ([top, bottom] if cost else [top]):
             ax.set_xticks(sizes)
             ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{int(round(v)):,}"))
             ax.xaxis.set_minor_locator(NullLocator())
@@ -236,12 +275,16 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
             ax.grid(axis="both", color=GRID, linewidth=0.6)
             ax.set_axisbelow(True)
         top.set_title(f"horizon {h}", loc="left")
-        bottom.set_xlabel("series in the sample (log scale)")
+        last.set_xlabel("series in the sample (log scale)")
         if col == 0:
-            top.set_ylabel(f"median {metric}  (lower is better)")
-            bottom.set_ylabel("compute seconds per 1,000 series\n(one fit + one predict, log scale)")
+            top.set_ylabel(accuracy_label or f"median {metric}  (lower is better)")
         _label_line_ends(top, ends_top)
-        _label_line_ends(bottom, ends_bottom)
+        if cost:
+            bottom.set_yscale("log")
+            if col == 0:
+                bottom.set_ylabel("compute seconds per 1,000 series\n"
+                                  "(one fit + one predict, log scale)")
+            _label_line_ends(bottom, ends_bottom)
 
     handles = []
     for family in FAMILIES:
@@ -253,9 +296,8 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
     handles += [h for h in (reference_handle, band_handle) if h is not None]
     # the two explanatory entries are long, so no panel has room for the
     # legend without covering its own axis; it goes under the figure instead
-    fig.suptitle("Accuracy and compute against series count", x=0.01, ha="left",
-                 fontsize=10)
-    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    fig.suptitle(title, x=0.01, ha="left", fontsize=10)
+    fig.tight_layout(rect=(0, 0.08 if cost else 0.14, 1, 1))
     fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7.5,
                bbox_to_anchor=(0.5, 0.0), columnspacing=1.4, handlelength=2.2)
     return fig

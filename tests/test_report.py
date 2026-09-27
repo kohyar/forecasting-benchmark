@@ -362,11 +362,13 @@ def test_declared_space_is_empty_for_a_zero_shot_model(config_dict):
 def _rung(n, models, seed=0):
     """A finished rung: per-series MASE rows for 2 folds x 2 repeats x 2
     horizons, timings shaped like the real table, metadata with n_series."""
-    rng = np.random.default_rng(seed + n)
     ids = [f"S{i:05d}" for i in range(n)]
     metric_rows, timing_rows = [], []
     for model, family, level, fit, predict in models:
         for uid in ids:
+            # a series keeps its own error across rungs, as a local or zero-shot
+            # model's would; only the level (a function of n) can move
+            rng = np.random.default_rng(int(uid[1:]) + seed)
             base = rng.lognormal(np.log(level), 0.3)
             for fold in range(2):
                 for repeat in range(2):
@@ -499,3 +501,54 @@ def test_ladder_warnings_name_mixed_builds_and_missing_models():
     assert any("different builds" in n for n in notes)
     assert any("N=500 lacks learner" in n for n in notes)
     assert any("learner: 4/5 units, 1 failed" in n for n in notes)
+
+
+def test_common_series_is_the_intersection_of_the_rungs(ladder):
+    from tsbench.report.scaling import common_series
+
+    rungs, _ = ladder
+    shared = common_series(rungs)
+    assert len(shared) == 500
+    assert set(shared) == set(rungs[500]["metrics"]["unique_id"])
+
+
+def test_fixed_evaluation_set_holds_local_and_zero_shot_models_flat(ladder):
+    """On the same series a model that does not learn across series repeats
+    itself at every N; only the global model can move."""
+    from tsbench.report.scaling import common_series, scaling_table
+
+    rungs, _ = ladder
+    fixed = scaling_table(rungs, band=False, series=common_series(rungs))
+
+    assert (fixed["eval_series"] == 500).all()
+    for model in ("steady", "zeroshot"):
+        assert fixed.xs(model, level="model")["MASE_h4"].round(9).nunique() == 1
+    learner = fixed.xs("learner", level="model")["MASE_h4"]
+    assert learner.is_monotonic_decreasing and learner.iloc[-1] < learner.iloc[0]
+
+
+def test_reference_levels_can_be_taken_over_the_fixed_set(ladder):
+    from tsbench.report.scaling import common_series, reference_levels
+
+    rungs, _ = ladder
+    metrics = rungs[2000]["metrics"]
+    on_all = reference_levels(metrics, "steady", horizons=(4,))[4]
+    on_shared = reference_levels(metrics, "steady", horizons=(4,),
+                                 series=common_series(rungs))[4]
+    expected = (metrics[(metrics["model"] == "steady") & (metrics["metric"] == "MASE")
+                        & (metrics["horizon"] == 4)
+                        & metrics["unique_id"].isin(common_series(rungs))]["value"].median())
+    assert on_shared == pytest.approx(expected)
+    assert on_shared != on_all
+
+
+def test_scaling_figure_without_cost_has_one_row(ladder, tmp_path):
+    from tsbench.report.scaling import scaling_figure
+
+    _, table = ladder
+    fig = scaling_figure(table, horizons=(4, 13), reference=None, noise_model="zeroshot",
+                         cost=False, title="full sample")
+    assert len(fig.axes) == 2
+    fig.canvas.draw()
+    assert [t.get_text() for t in fig.axes[0].get_xticklabels()] == ["500", "1,000", "2,000"]
+    plt.close(fig)
