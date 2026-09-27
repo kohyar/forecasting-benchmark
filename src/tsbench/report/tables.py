@@ -39,9 +39,10 @@ def to_latex(frame: pd.DataFrame, caption: str, label: str,
     index_name = escaped.index.name
     escaped.index.name = None
 
+    # a cell with nothing to report is blank, not "NaN"
     body = escaped.to_latex(caption=_escape(caption), label=label,
                             float_format=float_format, escape=False,
-                            position="htbp")
+                            position="htbp", na_rep="")
     # pandas leaves the body flush left and spends a whole header row on the
     # index name; centre the float and fold that name into the header.
     body = body.replace("\\begin{table}[htbp]\n", "\\begin{table}[htbp]\n\\centering\n", 1)
