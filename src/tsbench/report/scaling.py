@@ -320,3 +320,60 @@ def _label_line_ends(ax, ends, min_gap_pt: float = 9.0) -> None:
         offset = pixel_y - ax.transData.transform((x, y))[1] * to_pt
         ax.annotate(model, (x, y), textcoords="offset points", xytext=(6, offset),
                     fontsize=7.5, color=INK, va="center", zorder=4)
+
+
+def per_series_scores(metrics: pd.DataFrame, model: str, metric: str, horizon: int,
+                      series=None) -> pd.Series:
+    """One value per series: folds and repeats averaged, as the paper's
+    post-hoc tests do, because the series is the unit treated as independent."""
+    scope = metrics[(metrics["model"] == model) & (metrics["metric"] == metric)
+                    & (metrics["horizon"] == horizon)]
+    if series is not None:
+        scope = scope[scope["unique_id"].isin(set(series))]
+    return scope.groupby("unique_id")["value"].mean()
+
+
+def paired_tests(rungs: dict, series, metric: str = "MASE", horizons=(4, 13),
+                 reference: pd.DataFrame | None = None,
+                 reference_model: str = "autoarima") -> pd.DataFrame:
+    """Two paired questions on the fixed evaluation set, per model and horizon.
+
+    Did the largest rung beat the smallest on the same series - what more
+    training series bought - and where does the largest rung stand against the
+    reference model on those series. Wilcoxon signed-rank with the series as
+    the block; a negative median difference favours the first named side.
+    """
+    from scipy import stats
+
+    sizes = sorted(rungs)
+    lo, hi = sizes[0], sizes[-1]
+    rows = []
+
+    def compare(a: pd.Series, b: pd.Series, model, h, label):
+        joined = pd.concat([a.rename("a"), b.rename("b")], axis=1).dropna()
+        diff = (joined["a"] - joined["b"]).to_numpy()
+        if len(diff) < 2 or np.allclose(diff, 0):
+            p_value = 1.0
+        else:
+            p_value = float(stats.wilcoxon(diff).pvalue)
+        rows.append({
+            "model": model, "horizon": h, "comparison": label, "n_series": int(len(diff)),
+            "median_first": float(joined["a"].median()),
+            "median_second": float(joined["b"].median()),
+            "median_paired_diff": float(np.median(diff)),
+            "share_first_better": float((diff < 0).mean()),
+            "p_value": p_value,
+        })
+
+    models = sorted(set.intersection(*[set(r["metrics"]["model"].unique())
+                                       for r in rungs.values()]))
+    for model in models:
+        for h in horizons:
+            largest = per_series_scores(rungs[hi]["metrics"], model, metric, h, series)
+            smallest = per_series_scores(rungs[lo]["metrics"], model, metric, h, series)
+            compare(largest, smallest, model, h, f"N={hi:,} vs N={lo:,}")
+            if reference is not None:
+                ref = per_series_scores(reference, reference_model, metric, h, series)
+                if len(ref):
+                    compare(largest, ref, model, h, f"N={hi:,} vs {reference_model}")
+    return pd.DataFrame(rows).set_index(["model", "horizon", "comparison"])

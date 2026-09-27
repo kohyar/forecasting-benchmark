@@ -31,6 +31,7 @@ from tsbench.report.scaling import (  # noqa: E402
     ladder_warnings,
     load_ladder,
     noise_band,
+    paired_tests,
     reference_levels,
     scaling_figure,
     scaling_table,
@@ -132,6 +133,17 @@ def main() -> None:
         cross.to_csv(out_dir / "crossover.csv")
         _print_crossovers(cross, f"{args.reference_model} on the same {len(shared):,} series")
 
+    # Paired on the same series: the medians above can move by composition of
+    # folds and repeats alone, so the per-series test is what supports "no change".
+    paired = paired_tests(rungs, shared, metric=args.metric, horizons=horizons,
+                          reference=reference_metrics, reference_model=args.reference_model)
+    paired.to_csv(out_dir / "paired_tests.csv")
+    print("\npaired Wilcoxon on the fixed evaluation set (negative diff favours the first side):")
+    for (model, h, label), row in paired.iterrows():
+        print(f"  {model:10s} h{h:<3} {label:24s} median {row['median_first']:.4f} vs "
+              f"{row['median_second']:.4f}  paired diff {row['median_paired_diff']:+.4f}  "
+              f"better on {row['share_first_better']:.0%} of series  p={row['p_value']:.3g}")
+
     fig = scaling_figure(fixed, horizons=horizons, metric=args.metric,
                          reference=fixed_reference,
                          reference_label=f"{args.reference_model} on the same series "
@@ -188,6 +200,7 @@ def main() -> None:
         "noise_band_full_sample": bands,
         "crossover_fixed": json.loads(cross.reset_index().to_json(orient="records"))
         if len(cross) else [],
+        "paired_tests_fixed": json.loads(paired.reset_index().to_json(orient="records")),
         "warnings": warnings,
     }, indent=2, default=str))
     print(f"summary -> {out_dir / 'scaling_summary.json'}")

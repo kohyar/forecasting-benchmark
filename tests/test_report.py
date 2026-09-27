@@ -552,3 +552,27 @@ def test_scaling_figure_without_cost_has_one_row(ladder, tmp_path):
     fig.canvas.draw()
     assert [t.get_text() for t in fig.axes[0].get_xticklabels()] == ["500", "1,000", "2,000"]
     plt.close(fig)
+
+
+def test_paired_tests_separate_a_learner_from_a_model_that_cannot_move(ladder):
+    from tsbench.report.scaling import common_series, paired_tests
+
+    rungs, _ = ladder
+    shared = common_series(rungs)
+    paired = paired_tests(rungs, shared, horizons=(4,),
+                          reference=rungs[2000]["metrics"], reference_model="steady")
+
+    growth = paired.xs("N=2,000 vs N=500", level="comparison")
+    # the same forecasts at both sizes: nothing to test, p is 1 by construction
+    assert growth.loc[("steady", 4), "p_value"] == 1.0
+    assert growth.loc[("zeroshot", 4), "median_paired_diff"] == 0.0
+    # the learner improved on most series, and the test sees it
+    learner = growth.loc[("learner", 4)]
+    assert learner["median_paired_diff"] < 0
+    assert learner["share_first_better"] > 0.5
+    assert learner["p_value"] < 0.01
+    assert learner["n_series"] == 500
+
+    against = paired.xs("N=2,000 vs steady", level="comparison")
+    assert against.loc[("steady", 4), "p_value"] == 1.0
+    assert set(against.index.get_level_values("model")) == {"steady", "learner", "zeroshot"}
