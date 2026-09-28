@@ -14,12 +14,27 @@ from scipy import stats
 
 
 def diebold_mariano(errors_a, errors_b, horizon: int, power: int = 2,
-                    harvey_correction: bool = True) -> dict:
+                    harvey_correction: bool = True,
+                    dependence_lags: int | None = None,
+                    clusters=None) -> dict:
     """Pairwise equal-predictive-accuracy test.
 
-    A negative statistic favours the first model. Autocovariances up to
-    horizon-1 enter the variance, because h-step forecast errors from
-    overlapping windows are serially correlated.
+    A negative statistic favours the first model. The inputs are one loss
+    per observation for each forecast; the test is on the mean of their
+    differential, and the only question is how the variance of that mean is
+    estimated.
+
+    Two dependence structures are supported. When the differentials are
+    indexed by time, h-step errors from overlapping windows are serially
+    correlated up to lag h-1, so `dependence_lags` autocovariances (default
+    horizon-1) enter the variance and the Harvey-Leybourne-Newbold factor and
+    t reference correct the small-sample size. When each differential is one
+    series - folds and repeats already averaged within it - the observations
+    have no order to be serially correlated along; pass `dependence_lags=0`,
+    and if the series fall into groups that share shocks (one product across
+    many markets) pass their group labels as `clusters`: the variance is then
+    the cluster sandwich, the reference is t on (groups - 1) degrees of
+    freedom, and the lag correction does not apply.
     """
     a = np.asarray(errors_a, dtype=float)
     b = np.asarray(errors_b, dtype=float)
@@ -28,11 +43,15 @@ def diebold_mariano(errors_a, errors_b, horizon: int, power: int = 2,
 
     ok = np.isfinite(a) & np.isfinite(b)
     a, b = a[ok], b[ok]
+    labels = None if clusters is None else np.asarray(clusters)[ok]
     n = len(a)
-    lags = max(int(horizon) - 1, 0)
+    lags = max(int(horizon) - 1, 0) if dependence_lags is None else max(int(dependence_lags), 0)
+    if labels is not None:
+        lags, harvey_correction = 0, False
 
     result = {"n": n, "horizon": int(horizon), "power": power,
               "n_autocovariances": lags, "harvey_correction": harvey_correction,
+              "n_clusters": int(len(np.unique(labels))) if labels is not None else n,
               "statistic": np.nan, "p_value": np.nan, "mean_loss_difference": np.nan}
     if n < 3:
         return result
@@ -42,13 +61,21 @@ def diebold_mariano(errors_a, errors_b, horizon: int, power: int = 2,
     result["mean_loss_difference"] = d_bar
 
     centred = d - d_bar
-    variance = float(centred @ centred) / n
-    for lag in range(1, lags + 1):
-        if lag >= n:
-            break
-        variance += 2.0 * float(centred[lag:] @ centred[:-lag]) / n
+    if labels is not None:
+        # sum the centred differentials within each cluster; clusters are
+        # independent of one another, members of one are not
+        sums = pd.Series(centred).groupby(labels).sum().to_numpy()
+        variance = float(sums @ sums) / n
+        df = result["n_clusters"] - 1
+    else:
+        variance = float(centred @ centred) / n
+        for lag in range(1, lags + 1):
+            if lag >= n:
+                break
+            variance += 2.0 * float(centred[lag:] @ centred[:-lag]) / n
+        df = n - 1
 
-    if variance <= 0:
+    if variance <= 0 or df < 1:
         result["statistic"] = 0.0 if d_bar == 0 else np.nan
         result["p_value"] = 1.0 if d_bar == 0 else np.nan
         return result
@@ -56,12 +83,12 @@ def diebold_mariano(errors_a, errors_b, horizon: int, power: int = 2,
     statistic = d_bar / np.sqrt(variance / n)
 
     if harvey_correction:
-        h = int(horizon)
+        h = lags + 1
         factor = (n + 1 - 2 * h + h * (h - 1) / n) / n
         statistic *= np.sqrt(max(factor, 1e-12))
 
     result["statistic"] = float(statistic)
-    result["p_value"] = float(2 * stats.t.cdf(-abs(statistic), df=n - 1))
+    result["p_value"] = float(2 * stats.t.cdf(-abs(statistic), df=df))
     return result
 
 

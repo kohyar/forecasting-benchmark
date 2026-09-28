@@ -101,20 +101,27 @@ def main() -> None:
 
         dm = _pairwise_dm(metrics, args.metric, horizon)
         dm.to_csv(out_dir / f"diebold_mariano_h{horizon}.csv", index=False)
-        print(f"  Diebold-Mariano (HLN-corrected, h={horizon}) -> "
-              f"{(dm['p_value'] < args.alpha).sum()}/{len(dm)} pairs separate\n")
+        print(f"  Diebold-Mariano (subcategory-clustered, {int(dm['n_clusters'].iloc[0])} clusters, "
+              f"h={horizon}) -> {(dm['p_value'] < args.alpha).sum()}/{len(dm)} pairs separate\n")
 
     print(f"analysis -> {out_dir}")
 
 
 def _pairwise_dm(metrics: pd.DataFrame, metric: str, horizon: int) -> pd.DataFrame:
-    """DM on per-series scaled errors, with the small-sample correction the
-    overlapping windows require."""
+    """DM on one scaled loss per series. Folds and repeats are averaged within
+    a series first, so the overlap between successive origins never reaches
+    the test, and the series are the observations. Series of one subcategory
+    across many markets share demand shocks, so the variance is clustered by
+    subcategory (the part of the id before '@@'); the t reference then has
+    one degree of freedom fewer than the number of subcategories."""
     wide = blocks_for_testing(metrics, metric=metric, horizon=horizon)
+    ids = wide.index.to_series().astype(str)
+    clusters = ids.str.split("@@").str[0].to_numpy() if ids.str.contains("@@").all() else None
     rows = []
     for left, right in combinations(wide.columns, 2):
         result = diebold_mariano(wide[left].to_numpy(), wide[right].to_numpy(),
-                                 horizon=horizon, power=1)
+                                 horizon=horizon, power=1, dependence_lags=0,
+                                 clusters=clusters)
         rows.append({"model_a": left, "model_b": right, **result})
     return pd.DataFrame(rows)
 

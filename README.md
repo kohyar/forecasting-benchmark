@@ -242,8 +242,11 @@ silently.
 
 Separate module, run over a finished results file:
 
-- Diebold-Mariano with the Harvey-Leybourne-Newbold small-sample correction,
-  autocovariances to h−1, pairwise
+- Diebold-Mariano on one loss per series (folds and repeats averaged within
+  the series), pairwise, with the variance clustered by subcategory because
+  one product's series across markets share demand shocks. The time-indexed
+  form with autocovariances to h−1 and the Harvey-Leybourne-Newbold factor is
+  still available for differentials that are ordered in time
 - Friedman omnibus with Nemenyi post-hoc and a critical-difference diagram
 - Wilcoxon signed-rank with Holm adjustment as the second post-hoc
 - Percentile bootstrap CIs on skill scores

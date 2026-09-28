@@ -202,3 +202,49 @@ def test_bootstrap_is_reproducible_from_its_seed(rng):
     second = bootstrap_skill_ci(data, n_resamples=200, seed=7)
 
     assert first == second
+
+
+def test_one_differential_per_series_uses_no_lag_terms(rng):
+    """When each observation is a series, not a time step, the horizon must
+    not smuggle autocovariance terms into the variance: the series have no
+    order to be correlated along, and the correction factor reduces to the
+    one-step case whatever the horizon."""
+    a, b = rng.normal(0, 1, 200), rng.normal(0, 1.5, 200)
+
+    per_series = diebold_mariano(a, b, horizon=13, power=1, dependence_lags=0)
+    one_step = diebold_mariano(a, b, horizon=1, power=1)
+
+    assert per_series["n_autocovariances"] == 0
+    assert per_series["statistic"] == pytest.approx(one_step["statistic"])
+    assert per_series["p_value"] == pytest.approx(one_step["p_value"])
+    raw = diebold_mariano(a, b, horizon=13, power=1, dependence_lags=0,
+                          harvey_correction=False)
+    assert per_series["statistic"] / raw["statistic"] == pytest.approx(np.sqrt((200 - 1) / 200))
+
+
+def test_clustered_variance_reduces_to_independent_when_every_series_is_its_own_cluster(rng):
+    a, b = rng.normal(0, 1, 120), rng.normal(0, 1.4, 120)
+    independent = diebold_mariano(a, b, horizon=1, power=1, harvey_correction=False)
+    clustered = diebold_mariano(a, b, horizon=13, power=1, clusters=np.arange(120))
+
+    assert clustered["n_clusters"] == 120
+    assert clustered["n_autocovariances"] == 0
+    assert clustered["statistic"] == pytest.approx(independent["statistic"])
+    assert clustered["p_value"] == pytest.approx(independent["p_value"])
+
+
+def test_shared_shocks_within_a_cluster_widen_the_variance(rng):
+    """Twenty products in thirty markets each: a product-level shock moves
+    every market's differential together, and treating the 600 series as
+    independent would overstate the evidence."""
+    products = np.repeat(np.arange(20), 30)
+    shock = rng.normal(0, 1, 20)[products]
+    d = 0.1 + shock + rng.normal(0, 0.3, 600)
+    a, b = d, np.zeros(600)
+
+    independent = diebold_mariano(a, b, horizon=1, power=1, dependence_lags=0)
+    clustered = diebold_mariano(a, b, horizon=1, power=1, clusters=products)
+
+    assert clustered["n_clusters"] == 20
+    assert abs(clustered["statistic"]) < abs(independent["statistic"])
+    assert clustered["p_value"] > independent["p_value"]
