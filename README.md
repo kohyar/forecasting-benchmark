@@ -41,6 +41,7 @@ brew install libomp                     # lightgbm's OpenMP runtime (macOS)
 .venv/bin/python scripts/run_benchmark.py --list-models
 .venv/bin/python scripts/run_benchmark.py --n-series 50      # a smoke run
 .venv/bin/python scripts/run_stats.py --run results/<name>   # tests and tables
+.venv/bin/python scripts/build_appendix_tables.py --run results/<name> --scaling results/scaling
 .venv/bin/python scripts/profile_models.py --n-series 5      # cost probe
 ```
 
