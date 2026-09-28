@@ -509,3 +509,8 @@ class MyAdapter(ModelAdapter):
 Then add the module to `registry.ADAPTER_MODULES`. TiRex is registered but
 gated on its licence: flip `enabled=True` in `models/gated.py` and nothing else
 changes.
+
+## Licence
+
+MIT; see `LICENSE`. The SPINS data the benchmark was run on is not covered by
+it and is not distributed.
