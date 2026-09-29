@@ -139,8 +139,8 @@ def scaling_table(rungs: dict, metrics=("MASE", "RMSSE"), horizons=(4, 13),
                         lo, hi = bootstrap_median_band(scope, n_boot=n_boot)
                         row[f"{metric}_h{h}_lo"], row[f"{metric}_h{h}_hi"] = lo, hi
             if model in cost.index:
-                row["fit_s"] = cost.loc[model, "fit_s"]
                 for h in horizons:
+                    row[f"fit_s_h{h}"] = cost.loc[model, f"fit_s_h{h}"]
                     run_s = cost.loc[model, f"per1k_s_h{h}"]
                     row[f"run_s_h{h}"] = run_s
                     row[f"per1k_s_h{h}"] = run_s * 1000.0 / n
@@ -339,7 +339,7 @@ def paired_tests(rungs: dict, series, metric: str = "MASE", horizons=(4, 13),
     """Two paired questions on the fixed evaluation set, per model and horizon.
 
     Did the largest rung beat the smallest on the same series - what more
-    training series bought - and where does the largest rung stand against the
+    training series bought - and where does each rung stand against the
     reference model on those series. Wilcoxon signed-rank with the series as
     the block; a negative median difference favours the first named side.
     """
@@ -375,5 +375,7 @@ def paired_tests(rungs: dict, series, metric: str = "MASE", horizons=(4, 13),
             if reference is not None:
                 ref = per_series_scores(reference, reference_model, metric, h, series)
                 if len(ref):
-                    compare(largest, ref, model, h, f"N={hi:,} vs {reference_model}")
+                    for n in sizes:
+                        rung = per_series_scores(rungs[n]["metrics"], model, metric, h, series)
+                        compare(rung, ref, model, h, f"N={n:,} vs {reference_model}")
     return pd.DataFrame(rows).set_index(["model", "horizon", "comparison"])

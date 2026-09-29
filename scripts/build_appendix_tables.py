@@ -145,9 +145,10 @@ def main() -> None:
               "the largest rung.", "tab:crossover", float_format="%.3f")
         _emit(paired_tests_table(scaling / "paired_tests.csv"), out_dir,
               "T14_paired_tests",
-              "Paired Wilcoxon signed-rank tests on per-series MASE over the "
-              "500 shared series: each model at 4,000 series against itself at "
-              "500, and against AutoARIMA.", "tab:paired-tests",
+              "Paired Wilcoxon signed-rank tests on per-series MASE (mean over "
+              "folds and repeats) over the 500 shared series: each model at "
+              "4,000 series against itself at 500, and each rung against "
+              "AutoARIMA from the main run.", "tab:paired-tests",
               float_format="%.3f", fit_width=True)
 
 

@@ -60,7 +60,7 @@ def test_cost_per_1k_counts_one_fit_not_one_per_repeat(timings):
     """
     cost = cost_per_1k_table(timings)
 
-    assert cost.loc["steady", "fit_s"] == pytest.approx(100.0)
+    assert cost.loc["steady", "fit_s_h4"] == pytest.approx(100.0)
 
 
 def test_cost_per_1k_counts_a_shared_fit_once(timings):
@@ -70,6 +70,22 @@ def test_cost_per_1k_counts_a_shared_fit_once(timings):
     cost = cost_per_1k_table(timings)
 
     assert cost.loc["steady", "per1k_s_h4"] == pytest.approx(102.0)
+    assert cost.loc["steady", "fit_s_h13"] == pytest.approx(100.0)
+
+
+def test_cost_per_1k_charges_a_per_horizon_fit_to_its_horizon(timings):
+    """A model that refits for each horizon is charged that horizon's fit,
+    not a median over both horizons' fits.
+    """
+    neural = timings[timings["model"] == "steady"].copy()
+    neural["model"] = "refits"
+    neural["fit_reused"] = False
+    neural.loc[neural["horizon"] == 13, "fit_seconds"] = 300.0
+    cost = cost_per_1k_table(pd.concat([timings, neural]))
+
+    assert cost.loc["refits", "fit_s_h4"] == pytest.approx(100.0)
+    assert cost.loc["refits", "fit_s_h13"] == pytest.approx(300.0)
+    assert cost.loc["refits", "per1k_s_h13"] == pytest.approx(302.0)
 
 
 def test_cost_per_1k_relative_column_is_multiples_of_the_cheapest(timings):

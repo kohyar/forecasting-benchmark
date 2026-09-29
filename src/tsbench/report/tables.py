@@ -110,11 +110,19 @@ def cost_per_1k_table(timings: pd.DataFrame, budget: dict | None = None) -> pd.D
     """
     t = timings[timings["status"] == "ok"] if "status" in timings.columns else timings
 
-    fit = t[~t["fit_reused"]].groupby("model")["fit_seconds"].median()
+    # A model whose fit serves both horizons is charged that one fit at each
+    # horizon. The neural models fix the horizon when they are built and so
+    # refit per horizon; they are charged the horizon's own fit, not a median
+    # over both.
+    fresh = t[~t["fit_reused"]]
+    shared = fresh.groupby("model")["fit_seconds"].median()
     predict = t.groupby(["model", "horizon"])["predict_seconds"].median().unstack()
 
-    out = pd.DataFrame({"fit_s": fit})
+    out = pd.DataFrame(index=shared.index)
     for horizon in predict.columns:
+        own = fresh[fresh["horizon"] == horizon].groupby("model")["fit_seconds"].median()
+        fit = own.reindex(shared.index).fillna(shared)
+        out[f"fit_s_h{horizon}"] = fit
         out[f"predict_s_h{horizon}"] = predict[horizon]
         out[f"per1k_s_h{horizon}"] = fit + predict[horizon]
     for horizon in predict.columns:
