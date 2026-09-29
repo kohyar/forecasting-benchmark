@@ -1,0 +1,29 @@
+model,hyperparameter,range,selected
+dlinear,learning_rate,0.0001-0.01 log,0.008696
+dlinear,max_steps,100-800,600
+dlinear,batch_size,"{16, 32, 64}",64
+dlinear,scaler_type,"{standard, robust}",standard
+lightgbm_global,n_estimators,100-600,500
+lightgbm_global,learning_rate,0.01-0.2 log,0.1987
+lightgbm_global,num_leaves,15-127 log,91
+lightgbm_global,min_child_samples,5-60,48
+lightgbm_local,n_estimators,100-600,500
+lightgbm_local,learning_rate,0.01-0.2 log,0.01013
+lightgbm_local,num_leaves,15-127 log,70
+lightgbm_local,min_child_samples,5-60,13
+nhits,learning_rate,0.0001-0.01 log,0.0005612
+nhits,max_steps,100-800,800
+nhits,batch_size,"{16, 32, 64}",16
+nhits,scaler_type,"{standard, robust}",standard
+patchtst,learning_rate,0.0001-0.01 log,0.0001062
+patchtst,max_steps,100-800,700
+patchtst,batch_size,"{16, 32, 64}",16
+patchtst,scaler_type,"{standard, robust}",robust
+prophet,changepoint_prior_scale,0.001-0.5 log,0.05332
+prophet,seasonality_prior_scale,0.01-10.0 log,0.1555
+prophet,seasonality_mode,"{additive, multiplicative}",additive
+tft,learning_rate,0.0001-0.01 log,0.001036
+tft,max_steps,100-800,400
+tft,batch_size,"{16, 32, 64}",32
+tft,scaler_type,"{standard, robust}",standard
+tft,hidden_size,"{32, 64, 128}",128

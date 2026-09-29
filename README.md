@@ -49,6 +49,11 @@ The SPINS export is licensed and is not in this repo. Point `data.path` at your
 own copy; `build_sample.py` regenerates `data/` and `results/` locally, both
 gitignored. Same export + config + seed reproduces the frozen sample exactly.
 
+The results the paper reports are released under `release/` (the sampled
+series identifiers, every per-series metric and timing, the test outputs and
+the ladder report); `release/README.md` says how to rebuild the tables from
+them without the panel.
+
 ## Data decisions
 
 Source: 3,288,786 rows, 14,942 series, 232 weekly periods (2022-01-09 …

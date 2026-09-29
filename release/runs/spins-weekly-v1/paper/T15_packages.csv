@@ -1,0 +1,20 @@
+package,version
+python,3.12.3
+pandas,2.3.3
+numpy,2.5.2
+scipy,1.18.1
+statsforecast,2.1.1
+mlforecast,1.1.0
+neuralforecast,3.2.1
+lightgbm,4.7.0
+prophet,1.4.0
+torch,2.10.0
+optuna,4.9.0
+mlflow,3.0.1
+chronos,2.3.1
+timesfm,2.0.2
+toto,0.2.0
+tabpfn_time_series,1.2.0
+tsfm_public,0.3.8
+transformers,5.15.1
+torch (build),2.10.0+cu128

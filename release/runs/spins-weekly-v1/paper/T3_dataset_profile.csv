@@ -1,0 +1,9 @@
+property,value
+series,"1,000"
+observations per series (median),232
+observations per series (min),156
+intermittent series (zero share >= 0.05),59
+share of series intermittent,5.9%
+zero share (median),0.000
+zero share (max),0.926
+total volume (sum),"24,956,775,379"

@@ -1,0 +1,70 @@
+{
+  "config_hash": "55a4f67a180d19c7",
+  "seed": 42,
+  "budget_trials": 20,
+  "objective": "mean_MASE",
+  "tuning_origin": "2025-08-24",
+  "budget": {
+    "lightgbm_global": 20,
+    "tft": 20,
+    "patchtst": 20,
+    "nhits": 20,
+    "dlinear": 20,
+    "naive": 0,
+    "seasonal_naive": 0,
+    "autoets": 0,
+    "autoarima": 0,
+    "autotheta": 0,
+    "prophet": 20,
+    "lightgbm_local": 20
+  },
+  "best": {
+    "lightgbm_global": {
+      "n_estimators": 500,
+      "learning_rate": 0.1987083137716341,
+      "num_leaves": 91,
+      "min_child_samples": 48
+    },
+    "tft": {
+      "learning_rate": 0.0010360240290714503,
+      "max_steps": 400,
+      "batch_size": 32,
+      "scaler_type": "standard",
+      "hidden_size": 128
+    },
+    "patchtst": {
+      "learning_rate": 0.00010623818229569276,
+      "max_steps": 700,
+      "batch_size": 16,
+      "scaler_type": "robust"
+    },
+    "nhits": {
+      "learning_rate": 0.0005611516415334506,
+      "max_steps": 800,
+      "batch_size": 16,
+      "scaler_type": "standard"
+    },
+    "dlinear": {
+      "learning_rate": 0.008696142413290007,
+      "max_steps": 600,
+      "batch_size": 64,
+      "scaler_type": "standard"
+    },
+    "naive": {},
+    "seasonal_naive": {},
+    "autoets": {},
+    "autoarima": {},
+    "autotheta": {},
+    "prophet": {
+      "changepoint_prior_scale": 0.05331856716906106,
+      "seasonality_prior_scale": 0.15546306621573128,
+      "seasonality_mode": "additive"
+    },
+    "lightgbm_local": {
+      "n_estimators": 500,
+      "learning_rate": 0.010125313281061143,
+      "num_leaves": 70,
+      "min_child_samples": 13
+    }
+  }
+}

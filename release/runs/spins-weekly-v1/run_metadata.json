@@ -1,0 +1,468 @@
+{
+  "progress": {
+    "naive": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "eb417c6597cf6196",
+      "commits": [
+        "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f"
+      ]
+    },
+    "seasonal_naive": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "819b6bd18402d471",
+      "commits": [
+        "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f"
+      ]
+    },
+    "autoets": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "f4c2fabebb8520e0",
+      "commits": [
+        "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f"
+      ]
+    },
+    "autoarima": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "b704f940584e0231",
+      "commits": [
+        "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f"
+      ]
+    },
+    "autotheta": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "6c03f1a26cdf267f",
+      "commits": [
+        "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f"
+      ]
+    },
+    "prophet": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "00e932ca51d218c4",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "lightgbm_local": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "882e5cd5d661ede2",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "lightgbm_global": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "32f55973af1267cd",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "tft": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "f91a62b26f71f7d8",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "patchtst": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "e4aaf1a51100cd9d",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "nhits": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "8bba4b1c504fa6d0",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "dlinear": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "9e47296b708203c0",
+      "commits": [
+        "978bd101333c101b7244bf0ae31c9fad78d65d60"
+      ]
+    },
+    "chronos2": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "a3899e970dad808b",
+      "commits": [
+        "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4"
+      ]
+    },
+    "timesfm": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "6489cc09c848dac6",
+      "commits": [
+        "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4"
+      ]
+    },
+    "toto": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "62ffd117990e234e",
+      "commits": [
+        "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4"
+      ]
+    },
+    "tabpfn_ts": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "6cd54aba64552ca8",
+      "commits": [
+        "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4"
+      ]
+    },
+    "ttm": {
+      "expected": 5,
+      "complete": 5,
+      "failed": 0,
+      "result_key": "808c5e7a3d87f963",
+      "commits": [
+        "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4"
+      ]
+    }
+  },
+  "run_name": "spins-weekly-v1",
+  "config_hash": "bb42a02d0acbd791",
+  "config": {
+    "run": {
+      "name": "spins-weekly-v1",
+      "seed": 42,
+      "n_repeats": 3,
+      "output_dir": "/Volumes/forecaster_develop/bronze/benchmark/results",
+      "n_jobs": -1,
+      "device": "auto",
+      "execution": "subprocess",
+      "work_dir": "/local_disk0/tmp"
+    },
+    "data": {
+      "path": "/Volumes/forecaster_develop/bronze/benchmark/New_Query_2026_06_01_10_17_28.csv",
+      "target": "Dollars",
+      "season_length": 52,
+      "scope": {
+        "geography_level": [
+          "MARKET"
+        ],
+        "channels": [
+          "CONVENTIONAL|MULTI OUTLET"
+        ]
+      },
+      "absent_rows": "zero"
+    },
+    "sampling": {
+      "n_series": 1000,
+      "volume_deciles": 10,
+      "zero_share_bins": [
+        0.0,
+        0.05,
+        0.2,
+        1.01
+      ],
+      "min_observed_weeks": 156,
+      "sample_path": "/Volumes/forecaster_develop/bronze/benchmark/sample_series.csv"
+    },
+    "protocol": {
+      "folds": 5,
+      "step": 4,
+      "horizons": [
+        4,
+        13
+      ],
+      "min_train_weeks": 104
+    },
+    "tuning": {
+      "budget_trials": 20
+    },
+    "metrics": {
+      "quantile_levels": [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9
+      ],
+      "coverage_levels": [
+        0.8
+      ],
+      "mase_denominator_window": "earliest_origin"
+    },
+    "models": {
+      "enabled": [
+        "naive",
+        "seasonal_naive",
+        "autoets",
+        "autoarima",
+        "autotheta",
+        "prophet",
+        "lightgbm_local",
+        "lightgbm_global",
+        "tft",
+        "patchtst",
+        "nhits",
+        "dlinear",
+        "chronos2",
+        "timesfm",
+        "toto",
+        "tabpfn_ts",
+        "ttm"
+      ],
+      "params": {},
+      "covariate_ablation": false
+    },
+    "cost": {
+      "usd_per_hour": null,
+      "instance_type": "Standard_NC8as_T4_v3",
+      "runtime_version": "17.3 LTS ML (GPU)"
+    }
+  },
+  "seed": 42,
+  "n_repeats": 3,
+  "execution": "subprocess",
+  "tuning_trials": 20,
+  "tsbench_version": "0.1.0",
+  "git_commit": "978bd101333c101b7244bf0ae31c9fad78d65d60",
+  "packages": {
+    "pandas": "2.3.3",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1",
+    "statsforecast": "2.1.1",
+    "mlforecast": "1.1.0",
+    "neuralforecast": "3.2.1",
+    "lightgbm": "4.7.0",
+    "prophet": "1.4.0",
+    "torch": "2.10.0",
+    "optuna": "4.9.0",
+    "mlflow": "3.0.1",
+    "chronos": "2.3.1",
+    "timesfm": "2.0.2",
+    "toto": "0.2.0",
+    "tabpfn_time_series": "1.2.0",
+    "tsfm_public": "0.3.8",
+    "transformers": "5.15.1"
+  },
+  "hardware": {
+    "device": "cuda",
+    "gpu_model": "Tesla T4",
+    "cpu_count": 8,
+    "platform": "Linux-5.15.0-1116-azure-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "torch_version": "2.10.0+cu128",
+    "gpu_count": 1,
+    "gpu_memory_gb": 15.56
+  },
+  "python": "3.12.3",
+  "models": [
+    "naive",
+    "seasonal_naive",
+    "autoets",
+    "autoarima",
+    "autotheta",
+    "prophet",
+    "lightgbm_local",
+    "lightgbm_global",
+    "tft",
+    "patchtst",
+    "nhits",
+    "dlinear",
+    "chronos2",
+    "timesfm",
+    "toto",
+    "tabpfn_ts",
+    "ttm"
+  ],
+  "covariate_ablation": false,
+  "model_status": [
+    {
+      "name": "naive",
+      "family": "baseline",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "seasonal_naive",
+      "family": "baseline",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "autoets",
+      "family": "local",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "autoarima",
+      "family": "local",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "autotheta",
+      "family": "local",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "prophet",
+      "family": "local",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "lightgbm_local",
+      "family": "local",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "lightgbm_global",
+      "family": "global",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "tft",
+      "family": "global",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "patchtst",
+      "family": "global",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "nhits",
+      "family": "global",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "dlinear",
+      "family": "global",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "chronos2",
+      "family": "foundation",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "timesfm",
+      "family": "foundation",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "toto",
+      "family": "foundation",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "tabpfn_ts",
+      "family": "foundation",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    },
+    {
+      "name": "ttm",
+      "family": "foundation",
+      "enabled": true,
+      "available": true,
+      "disabled_reason": ""
+    }
+  ],
+  "protocol": {
+    "folds": 5,
+    "step_weeks": 4,
+    "horizons": [
+      4,
+      13
+    ],
+    "season_length": 52,
+    "overlapping_test_windows": true
+  },
+  "collected_at": "2026-08-25T13:14:35+00:00",
+  "code_versions": {
+    "978bd101333c101b7244bf0ae31c9fad78d65d60": [
+      "dlinear",
+      "lightgbm_global",
+      "lightgbm_local",
+      "nhits",
+      "patchtst",
+      "prophet",
+      "tft"
+    ],
+    "b9fa876762ee89ad3bc7bc93b5559a8a8ca525b4": [
+      "chronos2",
+      "tabpfn_ts",
+      "timesfm",
+      "toto",
+      "ttm"
+    ],
+    "bd7c0e08b845cc24ac6202d4d6b5220cc23b999f": [
+      "autoarima",
+      "autoets",
+      "autotheta",
+      "naive",
+      "seasonal_naive"
+    ]
+  },
+  "note": "assembled from checkpoints by collect(); no models were run"
+}

@@ -1,0 +1,18 @@
+model,family,package,version,checkpoint,tuned,tuning ranges
+autoarima,local,statsforecast,2.1.1,,n/a,
+autoets,local,statsforecast,2.1.1,,n/a,
+autotheta,local,statsforecast,2.1.1,,n/a,
+chronos2,foundation,chronos,2.3.1,amazon/chronos-2,zero-shot,
+dlinear,global,neuralforecast,3.2.1,,20 trials,"learning_rate 0.0001-0.01 log; max_steps 100-800; batch_size {16, 32, 64}; scaler_type {standard, robust}"
+lightgbm_global,global,lightgbm,4.7.0,,20 trials,n_estimators 100-600; learning_rate 0.01-0.2 log; num_leaves 15-127 log; min_child_samples 5-60
+lightgbm_local,local,lightgbm,4.7.0,,20 trials,n_estimators 100-600; learning_rate 0.01-0.2 log; num_leaves 15-127 log; min_child_samples 5-60
+naive,baseline,statsforecast,2.1.1,,n/a,
+nhits,global,neuralforecast,3.2.1,,20 trials,"learning_rate 0.0001-0.01 log; max_steps 100-800; batch_size {16, 32, 64}; scaler_type {standard, robust}"
+patchtst,global,neuralforecast,3.2.1,,20 trials,"learning_rate 0.0001-0.01 log; max_steps 100-800; batch_size {16, 32, 64}; scaler_type {standard, robust}"
+prophet,local,prophet,1.4.0,,20 trials,"changepoint_prior_scale 0.001-0.5 log; seasonality_prior_scale 0.01-10.0 log; seasonality_mode {additive, multiplicative}"
+seasonal_naive,baseline,statsforecast,2.1.1,,n/a,
+tabpfn_ts,foundation,tabpfn_time_series,1.2.0,tabpfn-v2-regressor.ckpt,zero-shot,
+tft,global,neuralforecast,3.2.1,,20 trials,"learning_rate 0.0001-0.01 log; max_steps 100-800; batch_size {16, 32, 64}; scaler_type {standard, robust}; hidden_size {32, 64, 128}"
+timesfm,foundation,timesfm,2.0.2,google/timesfm-2.5-200m-pytorch,zero-shot,
+toto,foundation,toto,0.2.0,Datadog/Toto-Open-Base-1.0,zero-shot,
+ttm,foundation,tsfm_public,0.3.8,ibm-granite/granite-timeseries-ttm-r2,zero-shot,
