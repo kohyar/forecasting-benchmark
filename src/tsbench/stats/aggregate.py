@@ -119,7 +119,8 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from tsbench.report.style import INK, INK_MUTED, apply_paper_style, save_figure
+    from tsbench.report.style import (FULL_WIDTH_IN, INK, INK_MUTED,
+                                      apply_paper_style, save_figure)
     from tsbench.stats.tests import friedman_nemenyi
 
     apply_paper_style()
@@ -129,7 +130,7 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
     cd = result["critical_difference"]
     k = len(ranks)
 
-    fig, ax = plt.subplots(figsize=(8, 1.6 + 0.32 * k))
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH_IN, 1.6 + 0.32 * k))
     lo, hi = 0.8, k + 0.2
     ax.set_xlim(lo, hi)
     ax.set_ylim(0, 1)

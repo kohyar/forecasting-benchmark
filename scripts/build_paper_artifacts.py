@@ -142,8 +142,7 @@ def main() -> None:
         blocks = blocks_for_testing(metrics, metric="MASE", horizon=horizon)
         if blocks.shape[1] >= 3:
             critical_difference_diagram(
-                blocks, out_dir / f"F7_critical_difference_h{horizon}.png",
-                title=f"Mean rank on MASE, horizon {horizon}")
+                blocks, out_dir / f"F7_critical_difference_h{horizon}.png")
             print(f"  F7_critical_difference_h{horizon}")
 
     save_figure(error_distribution(metrics, horizons, families=families),

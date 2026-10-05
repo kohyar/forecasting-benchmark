@@ -21,6 +21,10 @@ _FALLBACK = {"color": "#52514e", "marker": "X"}
 
 PRINT_DPI = 300
 
+# Full text width of the journal's large format (174 mm). Figures are drawn at
+# this width so the lettering is the size it will be in print.
+FULL_WIDTH_IN = 6.85
+
 
 GRID = "#d9d8d4"
 INK = "#0b0b0b"
@@ -32,18 +36,20 @@ def family_style(family: str) -> dict:
 
 
 def apply_paper_style() -> None:
-    """Journal defaults: serif text near the body font, recessive rules, no
-    top/right spines competing with the data.
+    """Journal defaults: sans-serif lettering of at least 8 pt at print size,
+    recessive rules, no top/right spines competing with the data.
     """
     import matplotlib as mpl
 
     mpl.rcParams.update({
         "figure.dpi": 120,
         "savefig.bbox": "tight",
-        "font.family": "serif",
-        "font.serif": ["DejaVu Serif"],
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
         "font.size": 9,
-        "axes.titlesize": 10,
+        # embed TrueType outlines rather than Type 3 bitmapped glyphs
+        "pdf.fonttype": 42,
+        "axes.titlesize": 9,
         "axes.labelsize": 9,
         "axes.edgecolor": INK_MUTED,
         "axes.linewidth": 0.8,
@@ -62,6 +68,15 @@ def apply_paper_style() -> None:
         "text.color": INK,
         "axes.labelcolor": INK,
     })
+
+
+def panel_label(ax, letter: str, text: str = "") -> None:
+    """Letter a panel the way the journal refers to figure parts, with an
+    optional short descriptor beside it."""
+    ax.set_title(letter, loc="left", fontweight="bold")
+    if text:
+        ax.annotate(text, (0, 1), xycoords="axes fraction", textcoords="offset points",
+                    xytext=(14, 6), fontsize=9, va="baseline")
 
 
 def save_figure(fig, path, dpi: int = PRINT_DPI) -> list[Path]:

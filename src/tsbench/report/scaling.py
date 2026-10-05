@@ -24,11 +24,13 @@ from matplotlib.ticker import FuncFormatter, NullFormatter, NullLocator
 
 from tsbench.report.style import (
     FAMILIES,
+    FULL_WIDTH_IN,
     GRID,
     INK,
     INK_MUTED,
     apply_paper_style,
     family_style,
+    panel_label,
 )
 from tsbench.report.tables import cost_per_1k_table
 
@@ -199,7 +201,6 @@ def noise_band(table: pd.DataFrame, model: str, metric: str, horizon: int) -> tu
 def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
                    reference: dict | None = None, reference_label: str = "",
                    noise_model: str | None = "chronos2", cost: bool = True,
-                   title: str = "Accuracy and compute against series count",
                    accuracy_label: str | None = None):
     """F9: accuracy (top) and, with `cost`, compute per 1,000 series (bottom)
     against series count, one column per horizon. Series count doubles per
@@ -213,7 +214,7 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
     sizes = sorted(table.index.get_level_values("n_series").unique())
     n_rows = 2 if cost else 1
     fig, axes = plt.subplots(n_rows, len(horizons),
-                             figsize=(3.7 * len(horizons), 5.8 if cost else 3.4),
+                             figsize=(FULL_WIDTH_IN, 5.6 if cost else 3.3),
                              sharex=True)
     axes = np.asarray(axes).reshape(n_rows, len(horizons))
     families = set()
@@ -274,7 +275,9 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
             ax.xaxis.set_minor_formatter(NullFormatter())
             ax.grid(axis="both", color=GRID, linewidth=0.6)
             ax.set_axisbelow(True)
-        top.set_title(f"horizon {h}", loc="left")
+        panel_label(top, "abcdef"[col], f"horizon {h}")
+        if cost:
+            panel_label(bottom, "abcdef"[len(horizons) + col])
         last.set_xlabel("series in the sample (log scale)")
         if col == 0:
             top.set_ylabel(accuracy_label or f"median {metric}  (lower is better)")
@@ -296,9 +299,8 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
     handles += [h for h in (reference_handle, band_handle) if h is not None]
     # the two explanatory entries are long, so no panel has room for the
     # legend without covering its own axis; it goes under the figure instead
-    fig.suptitle(title, x=0.01, ha="left", fontsize=10)
     fig.tight_layout(rect=(0, 0.08 if cost else 0.14, 1, 1))
-    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=7.5,
+    fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=8,
                bbox_to_anchor=(0.5, 0.0), columnspacing=1.4, handlelength=2.2)
     return fig
 
@@ -319,7 +321,7 @@ def _label_line_ends(ax, ends, min_gap_pt: float = 9.0) -> None:
         placed.append(pixel_y)
         offset = pixel_y - ax.transData.transform((x, y))[1] * to_pt
         ax.annotate(model, (x, y), textcoords="offset points", xytext=(6, offset),
-                    fontsize=7.5, color=INK, va="center", zorder=4)
+                    fontsize=8, color=INK, va="center", zorder=4)
 
 
 def per_series_scores(metrics: pd.DataFrame, model: str, metric: str, horizon: int,

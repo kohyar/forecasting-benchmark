@@ -117,7 +117,7 @@ def main() -> None:
     _emit(full, out_dir, "T10_full_metrics",
           "Median point and probabilistic accuracy by model and horizon. "
           "CRPS is twice the mean pinball loss over the nine quantiles; "
-          "coverage is of the nominal 80\\% interval.",
+          "coverage is of the nominal 80% interval.",
           "tab:full-metrics", fit_width=True)
 
     folds = fold_timings_table(timings, horizons[0])

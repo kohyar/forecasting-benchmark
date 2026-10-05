@@ -563,7 +563,7 @@ def test_scaling_figure_without_cost_has_one_row(ladder, tmp_path):
 
     _, table = ladder
     fig = scaling_figure(table, horizons=(4, 13), reference=None, noise_model="zeroshot",
-                         cost=False, title="full sample")
+                         cost=False)
     assert len(fig.axes) == 2
     fig.canvas.draw()
     assert [t.get_text() for t in fig.axes[0].get_xticklabels()] == ["500", "1,000", "2,000"]

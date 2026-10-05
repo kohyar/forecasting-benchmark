@@ -149,8 +149,6 @@ def main() -> None:
                          reference_label=f"{args.reference_model} on the same series "
                                          "(paper run)",
                          noise_model=None, cost=True,
-                         title=f"Accuracy on the same {len(shared):,} series, and compute, "
-                               "against series count",
                          accuracy_label=f"median {args.metric}\n(same series at every N)")
     written = save_figure(fig, out_dir / "F9_scaling")
     print(f"\nF9 -> {', '.join(str(p) for p in written)}")
@@ -168,8 +166,7 @@ def main() -> None:
           + ", ".join(f"h{h} {b[0]:.4f}..{b[1]:.4f} ({(b[1] / b[0] - 1) * 100:.1f}%)"
                       if b else f"h{h} n/a" for h, b in bands.items()))
     fig = scaling_figure(full, horizons=horizons, metric=args.metric, reference=None,
-                         noise_model=args.noise_model, cost=False,
-                         title="Accuracy over each rung's full sample against series count")
+                         noise_model=args.noise_model, cost=False)
     written = save_figure(fig, out_dir / "F9b_scaling_full_sample")
     print(f"F9b -> {', '.join(str(p) for p in written)}")
 

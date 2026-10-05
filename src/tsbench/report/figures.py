@@ -4,11 +4,13 @@ import numpy as np
 
 from tsbench.report.style import (
     FAMILIES,
+    FULL_WIDTH_IN,
     GRID,
     INK,
     INK_MUTED,
     apply_paper_style,
     family_style,
+    panel_label,
 )
 
 
@@ -54,8 +56,11 @@ def _family_handles(families, patch=False):
             continue
         style = family_style(family)
         if patch:
-            handles.append(plt.Rectangle((0, 0), 1, 1, facecolor=style["color"],
-                                         alpha=0.75, edgecolor="white", label=family))
+            # the box colour and the marker drawn on its median, in one swatch
+            handles.append(plt.Line2D([], [], linestyle="none", label=family,
+                                      marker=style["marker"], markersize=7,
+                                      markerfacecolor=style["color"],
+                                      markeredgecolor=INK, markeredgewidth=0.8))
         else:
             handles.append(plt.Line2D([], [], linestyle="none", label=family,
                                       marker=style["marker"], markersize=6,
@@ -97,7 +102,7 @@ def _place_labels(ax, names, x, y, show):
 
         ax.annotate(name, (x[index], y[index]), textcoords="offset points",
                     xytext=best, ha="left" if best[0] > 0 else "right",
-                    fontsize=7.5, color=INK, zorder=4)
+                    fontsize=8, color=INK, zorder=4)
 
 
 def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
@@ -120,7 +125,7 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
     y = joined[score].to_numpy()
     on_front = pareto_frontier(x, y)
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    fig, ax = plt.subplots(figsize=(FULL_WIDTH_IN, 4.3))
 
     tied_handle, tied = None, set()
     if dm is not None:
@@ -133,7 +138,7 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
             tied_handle = ax.scatter(
                 marked[cost_column], marked[score], s=200, facecolors="none",
                 edgecolors=INK, linewidths=1.0, zorder=2,
-                label=f"not separable from best (p$\\geq${alpha})")
+                label=f"not separable from best (p ≥ {alpha})")
 
     for family, group in joined.groupby("family"):
         style = family_style(family)
@@ -159,7 +164,6 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
 
     ax.set_xlabel("compute seconds per 1,000 series (one fit + one predict, log scale)")
     ax.set_ylabel(f"{accuracy_label}, h={horizon}  (lower is better)")
-    ax.set_title(f"Accuracy against compute, horizon {horizon}", loc="left")
     ax.grid(axis="both", color=GRID, linewidth=0.6)
     ax.set_axisbelow(True)
     extra = [frontier] + ([tied_handle] if tied_handle is not None else [])
@@ -181,10 +185,10 @@ def error_distribution(metrics, horizons, metric="MASE", families=None):
 
     # sharex too: different scales per panel would make the spreads look
     # comparable across horizons when they are not
-    fig, axes = plt.subplots(1, len(horizons), figsize=(7.4, 5.2),
+    fig, axes = plt.subplots(1, len(horizons), figsize=(FULL_WIDTH_IN, 5.0),
                              sharey=True, sharex=True)
     axes = np.atleast_1d(axes)
-    for ax, horizon in zip(axes, horizons):
+    for ax, horizon, letter in zip(axes, horizons, "abcdef"):
         per_model = [scope[(scope["model"] == m) & (scope["horizon"] == horizon)]["value"]
                      .dropna().to_numpy() for m in order]
         box = ax.boxplot(per_model, vert=False, widths=0.6, showfliers=False,
@@ -198,17 +202,25 @@ def error_distribution(metrics, horizons, metric="MASE", families=None):
         for whisker in box["whiskers"] + box["caps"]:
             whisker.set_color(INK_MUTED)
             whisker.set_linewidth(0.8)
+        # colour alone does not survive a greyscale print, so the family's
+        # marker sits on each median as well
+        for position, (model, values) in enumerate(zip(order, per_model), start=1):
+            if families and len(values):
+                ax.plot(np.median(values), position, linestyle="none",
+                        marker=family_style(families.get(model, ""))["marker"],
+                        markersize=4.5, markerfacecolor="white",
+                        markeredgecolor=INK, markeredgewidth=0.8, zorder=4)
         ax.axvline(1.0, color=INK_MUTED, linewidth=0.8, linestyle=":", zorder=1)
         ax.set_yticks(range(1, len(order) + 1))
         ax.set_yticklabels(order)
         ax.set_xlabel(f"{metric}, h={horizon}")
         ax.grid(axis="x", color=GRID, linewidth=0.6)
         ax.set_axisbelow(True)
+        if len(horizons) > 1:
+            panel_label(ax, letter)
     if families:
         axes[-1].legend(handles=_family_handles(set(families.values()), patch=True),
                         loc="lower right", fontsize=8)
-    fig.suptitle(f"{metric} across series; dotted line marks parity with the "
-                 "scaling baseline", x=0.01, ha="left", fontsize=10)
     fig.tight_layout()
     return fig
 
@@ -242,15 +254,20 @@ def coverage_calibration(metrics, horizons, target=0.8, families=None):
     ax.set_yticks(positions)
     ax.set_yticklabels(order)
     ax.set_xlabel("achieved coverage of the nominal 80% interval")
-    ax.set_title("Interval calibration (filled: h=%d, open: h=%d)" % tuple(horizons),
-                 loc="left")
+    # filled against open is the horizon, whatever the family
+    fills = [plt.Line2D([], [], linestyle="none", marker="o", markersize=6,
+                        markerfacecolor=INK_MUTED if filled else "white",
+                        markeredgecolor=INK_MUTED, markeredgewidth=1.2,
+                        label=f"h={horizon}")
+             for horizon, filled in zip(horizons, (True, False))]
+    family_handles = []
     if families:
         missing = sorted(set(families) - set(order))
         if missing:
             ax.set_xlabel(ax.get_xlabel()
                           + f"\nno intervals produced by: {', '.join(missing)}")
-        ax.legend(handles=_family_handles(set(families.values())),
-                  loc="lower right", fontsize=8)
+        family_handles = _family_handles(set(families.values()))
+    ax.legend(handles=family_handles + fills, loc="lower right", fontsize=8)
     ax.grid(axis="x", color=GRID, linewidth=0.6)
     ax.set_axisbelow(True)
     fig.tight_layout()
