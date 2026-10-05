@@ -8,8 +8,9 @@
 
 import os, subprocess, sys
 
+# Set both to your own workspace before the first run.
 VOLUME = "/Volumes/forecaster_develop/bronze/benchmark"
-REPO = "/Workspace/Repos/iman.kohyarnejad@vancereaviejunction.onmicrosoft.com/forecasting-benchmark"
+REPO = "/Workspace/Repos/<your-databricks-user>/forecasting-benchmark"
 CONFIG = f"{REPO}/configs/databricks-t4.yaml"
 LIBS = "/local_disk0/tsbench-libs"
 

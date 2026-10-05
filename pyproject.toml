@@ -1,7 +1,7 @@
 [project]
 name = "tsbench"
 version = "0.1.0"
-description = "Reproducible benchmark harness for weekly retail time-series forecasting (SPINS)"
+description = "Reproducible benchmark harness for time series forecasting"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"

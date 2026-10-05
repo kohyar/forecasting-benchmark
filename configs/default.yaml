@@ -41,7 +41,7 @@ protocol:
   # Origins are 4 weeks apart, not 13: spacing them a full horizon apart would
   # consume 65 weeks and leave the earliest fold under two seasonal cycles.
   # Test windows therefore overlap - fold errors are correlated, which is why
-  # the DM test uses the Harvey-Leybourne-Newbold correction.
+  # the tests average folds within a series before comparing models.
   step: 4
   horizons: [4, 13]
   min_train_weeks: 104
@@ -59,7 +59,6 @@ metrics:
   mase_denominator_window: earliest_origin
 
 cost:
-  # Fill these in once the GPU runner is fixed - they turn wall clock into
   # Optional. The paper reports compute-seconds per 1k series, not currency:
   # one node means a price is just that time times a constant, and a DBU rate
   # is contract-specific. Left null, the dollar column is simply omitted.

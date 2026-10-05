@@ -5,7 +5,7 @@
   "driver_node_type_id": "Standard_NC8as_T4_v3",
   "num_workers": 0,
   "data_security_mode": "SINGLE_USER",
-  "single_user_name": "iman.kohyarnejad@vancereaviejunction.onmicrosoft.com",
+  "single_user_name": "<your-databricks-user>",
   "runtime_engine": "STANDARD",
   "autotermination_minutes": 120,
   "spark_conf": {
