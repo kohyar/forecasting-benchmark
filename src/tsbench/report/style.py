@@ -19,6 +19,27 @@ _STYLES = {
 
 _FALLBACK = {"color": "#52514e", "marker": "X"}
 
+# The names the paper's tables use, so figures and tables read the same
+PAPER_NAMES = {
+    "naive": "Naive",
+    "seasonal_naive": "Seasonal naive",
+    "autoarima": "AutoARIMA",
+    "autoets": "AutoETS",
+    "autotheta": "AutoTheta",
+    "prophet": "Prophet",
+    "lightgbm_local": "LightGBM-local",
+    "lightgbm_global": "LightGBM-global",
+    "tft": "TFT",
+    "patchtst": "PatchTST",
+    "nhits": "N-HiTS",
+    "dlinear": "DLinear",
+    "chronos2": "Chronos-2",
+    "timesfm": "TimesFM-2.5",
+    "toto": "Toto",
+    "tabpfn_ts": "TabPFN-TS",
+    "ttm": "TTM",
+}
+
 PRINT_DPI = 300
 
 # Full text width of the journal's large format (174 mm). Figures are drawn at
@@ -33,6 +54,10 @@ INK_MUTED = "#52514e"
 
 def family_style(family: str) -> dict:
     return dict(_STYLES.get(family, _FALLBACK))
+
+
+def paper_name(model: str) -> str:
+    return PAPER_NAMES.get(model, model)
 
 
 def apply_paper_style() -> None:

@@ -11,6 +11,7 @@ from tsbench.report.style import (
     apply_paper_style,
     family_style,
     panel_label,
+    paper_name,
 )
 
 
@@ -212,7 +213,7 @@ def error_distribution(metrics, horizons, metric="MASE", families=None):
                         markeredgecolor=INK, markeredgewidth=0.8, zorder=4)
         ax.axvline(1.0, color=INK_MUTED, linewidth=0.8, linestyle=":", zorder=1)
         ax.set_yticks(range(1, len(order) + 1))
-        ax.set_yticklabels(order)
+        ax.set_yticklabels([paper_name(m) for m in order])
         ax.set_xlabel(f"{metric}, h={horizon}")
         ax.grid(axis="x", color=GRID, linewidth=0.6)
         ax.set_axisbelow(True)
@@ -226,15 +227,19 @@ def error_distribution(metrics, horizons, metric="MASE", families=None):
 
 
 def coverage_calibration(metrics, horizons, target=0.8, families=None):
-    """Achieved coverage of the nominal interval, per model.
+    """Pooled coverage of the nominal interval, per model.
 
     A model far below the target is claiming more certainty than it has; far
     above means intervals so wide they say nothing.
     """
     apply_paper_style()
-    scope = metrics[metrics["metric"] == "coverage_80"]
-    order = (scope[scope["horizon"] == horizons[0]]
-             .groupby("model")["value"].median().sort_values().index.tolist())
+    scope = metrics[metrics["metric"] == "coverage_80"].dropna(subset=["value"])
+    # pooled over forecast points: a per-series median of 4 points can only
+    # land on a multiple of 0.25
+    scope = scope.assign(covered=scope["value"] * scope["n_points"])
+    pooled = scope.groupby(["model", "horizon"])[["covered", "n_points"]].sum()
+    pooled = (pooled["covered"] / pooled["n_points"]).unstack("horizon")
+    order = pooled[horizons[0]].sort_values().index.tolist()
 
     fig, ax = plt.subplots(figsize=(6.4, 5.0))
     positions = np.arange(len(order))
@@ -243,8 +248,7 @@ def coverage_calibration(metrics, horizons, target=0.8, families=None):
                 textcoords="offset points", xytext=(6, 0), fontsize=8, color=INK)
 
     for offset, horizon, filled in zip((-0.16, 0.16), horizons, (True, False)):
-        values = (scope[scope["horizon"] == horizon].groupby("model")["value"]
-                  .median().reindex(order))
+        values = pooled[horizon].reindex(order)
         for pos, model, value in zip(positions, order, values):
             style = family_style(families.get(model, "") if families else "")
             ax.plot(value, pos + offset, marker=style["marker"], markersize=6,
@@ -252,20 +256,17 @@ def coverage_calibration(metrics, horizons, target=0.8, families=None):
                     markeredgecolor=style["color"], markeredgewidth=1.2, zorder=3)
 
     ax.set_yticks(positions)
-    ax.set_yticklabels(order)
-    ax.set_xlabel("achieved coverage of the nominal 80% interval")
+    ax.set_yticklabels([paper_name(m) for m in order])
+    ax.set_xlabel("empirical coverage")
     # filled against open is the horizon, whatever the family
     fills = [plt.Line2D([], [], linestyle="none", marker="o", markersize=6,
                         markerfacecolor=INK_MUTED if filled else "white",
                         markeredgecolor=INK_MUTED, markeredgewidth=1.2,
                         label=f"h={horizon}")
              for horizon, filled in zip(horizons, (True, False))]
+    # models without intervals are named in the caption, not on the figure
     family_handles = []
     if families:
-        missing = sorted(set(families) - set(order))
-        if missing:
-            ax.set_xlabel(ax.get_xlabel()
-                          + f"\nno intervals produced by: {', '.join(missing)}")
         family_handles = _family_handles(set(families.values()))
     ax.legend(handles=family_handles + fills, loc="lower right", fontsize=8)
     ax.grid(axis="x", color=GRID, linewidth=0.6)

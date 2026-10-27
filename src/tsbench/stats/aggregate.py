@@ -120,7 +120,7 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
     import matplotlib.pyplot as plt
 
     from tsbench.report.style import (FULL_WIDTH_IN, INK, INK_MUTED,
-                                      apply_paper_style, save_figure)
+                                      apply_paper_style, paper_name, save_figure)
     from tsbench.stats.tests import friedman_nemenyi
 
     apply_paper_style()
@@ -146,22 +146,25 @@ def critical_difference_diagram(blocks: pd.DataFrame, path, alpha: float = 0.05,
         y = 0.72 - i * (0.62 / max(k, 1))
         ax.plot([rank, rank], [0.82, y], color=INK_MUTED, linewidth=0.8)
         ax.plot([rank, lo + 0.1], [y, y], color=INK_MUTED, linewidth=0.8)
-        ax.text(lo + 0.05, y, f"{name} ({rank:.2f})", ha="right", va="center",
+        ax.text(lo + 0.05, y, f"{paper_name(name)} ({rank:.2f})", ha="right", va="center",
                 fontsize=8, color=INK)
 
     # cliques: consecutive models whose mean ranks differ by less than the CD
     values = ranks.to_numpy()
     bar_y = 0.79
+    reached = -1
     for start in range(k):
         end = start
         while end + 1 < k and values[end + 1] - values[start] <= cd:
             end += 1
-        if end > start:
+        # skip groups already covered by a wider bar
+        if end > start and end > reached:
+            reached = end
             ax.plot([values[start], values[end]], [bar_y, bar_y],
                     color=INK, linewidth=3, solid_capstyle="butt")
             bar_y -= 0.03
 
-    ax.text(hi, 0.95, f"CD = {cd:.2f}  (alpha={alpha}, n={result['n_blocks']})",
+    ax.text(hi, 0.95, f"CD = {cd:.3f}",
             ha="right", va="top", fontsize=8, color=INK_MUTED)
     if title:
         ax.set_title(title, fontsize=10, loc="left")
