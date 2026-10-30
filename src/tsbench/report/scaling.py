@@ -31,6 +31,7 @@ from tsbench.report.style import (
     apply_paper_style,
     family_style,
     panel_label,
+    paper_name,
 )
 from tsbench.report.tables import cost_per_1k_table
 
@@ -232,7 +233,7 @@ def scaling_figure(table: pd.DataFrame, horizons=(4, 13), metric: str = "MASE",
         if band and band[1] > band[0]:
             band_handle = top.axhspan(*band, color=family_style("foundation")["color"],
                                       alpha=0.12, linewidth=0, zorder=0,
-                                      label=f"{noise_model} spread across rungs "
+                                      label=f"{paper_name(noise_model)} spread across rungs "
                                             "(sampling noise)")
         if reference and h in reference:
             reference_handle = top.axhline(reference[h], color=INK_MUTED, linestyle="--",
@@ -320,7 +321,7 @@ def _label_line_ends(ax, ends, min_gap_pt: float = 9.0) -> None:
             pixel_y = placed[-1] + min_gap_pt
         placed.append(pixel_y)
         offset = pixel_y - ax.transData.transform((x, y))[1] * to_pt
-        ax.annotate(model, (x, y), textcoords="offset points", xytext=(6, offset),
+        ax.annotate(paper_name(model), (x, y), textcoords="offset points", xytext=(6, offset),
                     fontsize=8, color=INK, va="center", zorder=4)
 
 

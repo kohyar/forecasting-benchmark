@@ -71,39 +71,45 @@ def _family_handles(families, patch=False):
 
 
 def _place_labels(ax, names, x, y, show):
-    """Offset each label to whichever corner sits furthest from other markers.
+    """Put each label at the corner where its text overlaps the least.
 
     With seventeen models several sit close enough that a fixed offset drops a
-    label straight on top of a neighbour.
+    label straight on top of a neighbour or of another label.
     """
-    ax.figure.canvas.draw()
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
     points = ax.transData.transform(np.column_stack([x, y]))
-    left_edge = ax.transAxes.transform((0, 0))[0]
-    right_edge = ax.transAxes.transform((1, 0))[0]
+    axes_box = ax.get_window_extent(renderer)
+    placed = []
+
+    def overlap(a, b):
+        w = min(a.x1, b.x1) - max(a.x0, b.x0)
+        h = min(a.y1, b.y1) - max(a.y0, b.y0)
+        return max(w, 0) * max(h, 0)
 
     for index, name in enumerate(names):
         if not show[index]:
             continue
-        # a label pushed past either edge lands on the axis furniture
-        outward = [(9, 4), (9, -12)]
-        inward = [(-9, 4), (-9, -12)]
-        if points[index][0] > right_edge - 70:
-            candidates = inward
-        elif points[index][0] < left_edge + 70:
-            candidates = outward
-        else:
-            candidates = outward + inward
-        best, best_clearance = candidates[0], -np.inf
-        for dx, dy in candidates:
-            anchor = points[index] + np.array([dx * 3, dy * 1.5])
-            distances = np.hypot(*(points - anchor).T)
-            distances[index] = np.inf
-            if distances.min() > best_clearance:
-                best_clearance, best = distances.min(), (dx, dy)
-
-        ax.annotate(name, (x[index], y[index]), textcoords="offset points",
-                    xytext=best, ha="left" if best[0] > 0 else "right",
-                    fontsize=8, color=INK, zorder=4)
+        best, best_score = None, np.inf
+        for dx, dy in [(9, 4), (9, -12), (-9, 4), (-9, -12)]:
+            label = ax.annotate(name, (x[index], y[index]), textcoords="offset points",
+                                xytext=(dx, dy), ha="left" if dx > 0 else "right",
+                                fontsize=8, color=INK, zorder=4)
+            box = label.get_window_extent(renderer)
+            # text past the axes, on another label or on a marker, in that order
+            score = 100 * (box.width * box.height - overlap(box, axes_box))
+            score += 10 * sum(overlap(box, other) for other in placed)
+            padded = box.expanded(1.0, 1.0).padded(4)
+            score += sum(padded.contains(px, py)
+                         for j, (px, py) in enumerate(points) if j != index) * 50
+            if score < best_score:
+                if best is not None:
+                    best[0].remove()
+                best, best_score = (label, box), score
+            else:
+                label.remove()
+        placed.append(best[1])
 
 
 def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
@@ -147,19 +153,24 @@ def accuracy_vs_cost(cost, accuracy, horizon: int, highlight=(), dm=None,
                    s=58, marker=style["marker"], color=style["color"],
                    edgecolor="white", linewidth=0.6, zorder=3, label=family)
 
+    ax.set_xscale("log")
+    # room for the labels on the outermost points, which otherwise run off
+    x_lim = (x.min() * 0.55, x.max() * 2.6)
+    span = y.max() - y.min()
+    y_lim = (y.min() - span * 0.10, y.max() + span * 0.10)
+    ax.set_xlim(*x_lim)
+    ax.set_ylim(*y_lim)
+
+    # run the staircase out to the axes so a one-point frontier is still drawn
     order = np.argsort(x[on_front])
-    frontier = ax.step(x[on_front][order], y[on_front][order], where="post",
+    front_x = np.concatenate([[x[on_front][order][0]], x[on_front][order], [x_lim[1]]])
+    front_y = np.concatenate([[y_lim[1]], y[on_front][order], [y[on_front][order][-1]]])
+    frontier = ax.step(front_x, front_y, where="post",
                        color=INK_MUTED, linewidth=1.2, linestyle="--", zorder=2)[0]
     frontier.set_label("Pareto frontier")
 
-    ax.set_xscale("log")
-    # room for the labels on the outermost points, which otherwise run off
-    ax.set_xlim(x.min() * 0.55, x.max() * 2.6)
-    span = y.max() - y.min()
-    ax.set_ylim(y.min() - span * 0.10, y.max() + span * 0.10)
-
     # name the frontier, the tied set and anything explicitly called out
-    _place_labels(ax, list(joined.index), x, y,
+    _place_labels(ax, [paper_name(m) for m in joined.index], x, y,
                   [front or name in highlight or name in tied
                    for name, front in zip(joined.index, on_front)])
 

@@ -36,7 +36,7 @@ from tsbench.report.scaling import (  # noqa: E402
     scaling_figure,
     scaling_table,
 )
-from tsbench.report.style import save_figure  # noqa: E402
+from tsbench.report.style import paper_name, save_figure  # noqa: E402
 from tsbench.report.tables import to_latex  # noqa: E402
 
 
@@ -146,8 +146,8 @@ def main() -> None:
 
     fig = scaling_figure(fixed, horizons=horizons, metric=args.metric,
                          reference=fixed_reference,
-                         reference_label=f"{args.reference_model} on the same series "
-                                         "(paper run)",
+                         reference_label=f"{paper_name(args.reference_model)} on the same "
+                                         "series (main run)",
                          noise_model=None, cost=True,
                          accuracy_label=f"median {args.metric}\n(same series at every N)")
     written = save_figure(fig, out_dir / "F9_scaling")
