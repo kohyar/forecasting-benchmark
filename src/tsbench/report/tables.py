@@ -67,11 +67,28 @@ def main_accuracy_table(metrics: pd.DataFrame, metric_names=("MASE", "RMSSE", "s
         out["family"] = metrics.groupby("model")["family"].first()
 
     for metric in metric_names:
+        if metric == "coverage_80":
+            pooled = pooled_coverage(metrics)
+            for horizon in horizons:
+                out[f"{metric}_h{horizon}"] = pooled.get(horizon)
+            continue
         for horizon in horizons:
             scope = metrics[(metrics["metric"] == metric)
                             & (metrics["horizon"] == horizon)]
             out[f"{metric}_h{horizon}"] = scope.groupby("model")["value"].median()
     return out
+
+
+def pooled_coverage(metrics: pd.DataFrame, metric: str = "coverage_80") -> pd.DataFrame:
+    """Share of all forecast points inside the interval, model by horizon.
+
+    A per-series median of 4 or 13 points can only land on a multiple of
+    1/4 or 1/13, so coverage is pooled over points instead.
+    """
+    scope = metrics[metrics["metric"] == metric].dropna(subset=["value"])
+    scope = scope.assign(covered=scope["value"] * scope["n_points"])
+    pooled = scope.groupby(["model", "horizon"])[["covered", "n_points"]].sum()
+    return (pooled["covered"] / pooled["n_points"]).unstack("horizon")
 
 
 def ranking_flip_table(metrics: pd.DataFrame, series_ids, horizon: int,

@@ -2,6 +2,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from tsbench.report.tables import pooled_coverage
+
 from tsbench.report.style import (
     FAMILIES,
     FULL_WIDTH_IN,
@@ -244,12 +246,7 @@ def coverage_calibration(metrics, horizons, target=0.8, families=None):
     above means intervals so wide they say nothing.
     """
     apply_paper_style()
-    scope = metrics[metrics["metric"] == "coverage_80"].dropna(subset=["value"])
-    # pooled over forecast points: a per-series median of 4 points can only
-    # land on a multiple of 0.25
-    scope = scope.assign(covered=scope["value"] * scope["n_points"])
-    pooled = scope.groupby(["model", "horizon"])[["covered", "n_points"]].sum()
-    pooled = (pooled["covered"] / pooled["n_points"]).unstack("horizon")
+    pooled = pooled_coverage(metrics)
     order = pooled[horizons[0]].sort_values().index.tolist()
 
     fig, ax = plt.subplots(figsize=(6.4, 5.0))
